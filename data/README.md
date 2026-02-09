@@ -6,9 +6,9 @@ Synthetic Swedish neuropsychological language assessment data for embedding-base
 
 | File | Test | Participants | Items/Rows | Description |
 |------|------|--------------|------------|-------------|
-| `bnt_v2.csv` | Boston Naming Test | 100 | 30 items | Confrontation naming |
-| `svf_v1.csv` | Semantic Verbal Fluency | 100 | ~25 responses | Animal naming |
-| `fas_v1.csv` | Phonemic Verbal Fluency | 100 | ~15 responses | F-A-S letter fluency |
+| `bnt_v2.xlsx` | Boston Naming Test | 100 | 30 items | Confrontation naming |
+| `svf_v1.xlsx` | Semantic Verbal Fluency | 100 | ~25 responses | Animal naming |
+| `fas_v1.xlsx` | Phonemic Verbal Fluency | 100 | ~15 responses | F-A-S letter fluency |
 
 **Encoding:** UTF-8  
 **Language:** Swedish  
@@ -18,7 +18,7 @@ Synthetic Swedish neuropsychological language assessment data for embedding-base
 
 ## File Schemas
 
-### bnt_v2.csv — Boston Naming Test
+### bnt_v2.xlsx — Boston Naming Test
 
 Participants name pictures; responses compared against target words.
 
@@ -39,7 +39,7 @@ säng, penna, visselpipa, kam, såg, helikopter, bläckfisk, galge, kamel, kring
 
 ---
 
-### svf_v1.csv — Semantic Verbal Fluency
+### svf_v1.xlsx — Semantic Verbal Fluency
 
 Participants name animals within time limit; one word per row.
 
@@ -57,7 +57,7 @@ Participants name animals within time limit; one word per row.
 
 ---
 
-### fas_v1.csv — Phonemic/Letter Verbal Fluency
+### fas_v1.xlsx — Phonemic/Letter Verbal Fluency
 
 Participants produce words starting with F, A, S; stored as comma-separated triplets.
 
@@ -105,10 +105,6 @@ Participants produce words starting with F, A, S; stored as comma-separated trip
 
 ```
 data/
-├── csv/           # Analysis files (use these)
-│   ├── bnt_v2.csv
-│   ├── fas_v1.csv
-│   └── svf_v1.csv
 ├── xlsx/          # Original source files
 ├── processed/     # Pipeline outputs
 └── README.md
