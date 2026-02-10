@@ -2,6 +2,15 @@
 # Ignore cache and system files
 __pycache__/
  __MACOSX/
+
+# Python
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
 *.pyc
 *.pyo
 
