@@ -28,6 +28,7 @@ env/
 *.log
 *.out
 *.pt  # PyTorch checkpoint files
+*.pkl
 
 #Ignore swap and temp files
 *.un~
