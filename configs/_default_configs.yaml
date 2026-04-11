@@ -42,3 +42,15 @@ data:
       file: "FAS-syntheticData_v1.xlsx"
       type: "phonemic_fluency"
       has_gold_column: false
+
+svf:
+  data_path: "data/xlsx/SVF-syntheticData_v1.xlsx"
+  sheet_name: "SVF_djur_60s"
+  model_name: "KB/bert-base-swedish-cased"
+  output_path: "data/processed/svf_scored_results.csv"
+  cluster_threshold: 0.45  # to be calibrated empirically
+
+fas:
+  data_path: "data/xlsx/FAS-syntheticData_v1.xlsx"
+  sheet_name: "FAS_simulation"
+  output_path: "data/processed/fas_scored_results.csv"
