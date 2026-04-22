@@ -1,13 +1,14 @@
 """svf_pipeline.py
 SVF (Semantic Verbal Fluency) Scoring Pipeline
 ===============================================
-Scores participant responses for the SVF animal-fluency test using KB-BERT
+Scores participant responses for the SVF animal-fluency test using
 cosine similarity metrics following Pakhomov et al. (2016) / Troyer et al. (1997).
 
 Usage:
     python svf_pipeline.py --data data/xlsx/SVF-syntheticData_v1.xlsx
-    python svf_pipeline.py --mock          # use mock embeddings (no GPU needed)
-    python svf_pipeline.py                 # uses default path from config
+    python svf_pipeline.py --mock                   # mock embeddings (no GPU needed)
+    python svf_pipeline.py --model sbert-swedish    # use Swedish SBERT
+    python svf_pipeline.py                          # defaults (kb-bert, path from config)
 """
 
 import argparse
@@ -19,6 +20,29 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
+MODEL_CHOICES = ["kb-bert", "sbert-swedish", "e5-large", "e5-large-instruct"]
+
+
+def _build_encoder(model_name: str):
+    from src.thesis_project.embeddings.encoder import (
+        KBBertEmbedder,
+        SentenceTransformerEmbedder,
+    )
+
+    if model_name == "kb-bert":
+        return KBBertEmbedder()
+    if model_name == "sbert-swedish":
+        return SentenceTransformerEmbedder("KBLab/sentence-bert-swedish-cased")
+    if model_name == "e5-large":
+        return SentenceTransformerEmbedder(
+            "intfloat/multilingual-e5-large", prefix="query: "
+        )
+    if model_name == "e5-large-instruct":
+        return SentenceTransformerEmbedder(
+            "intfloat/multilingual-e5-large-instruct", prefix="query: "
+        )
+    raise ValueError(f"Unknown model: {model_name}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="SVF Semantic Verbal Fluency Scoring")
@@ -27,6 +51,12 @@ def main():
         type=str,
         default=None,
         help="Path to SVF XLSX file (default: from config)",
+    )
+    parser.add_argument(
+        "--model",
+        choices=MODEL_CHOICES,
+        default="kb-bert",
+        help="Embedding model preset (ignored if --mock). Default: kb-bert",
     )
     parser.add_argument(
         "--mock",
@@ -41,7 +71,7 @@ def main():
     )
     args = parser.parse_args()
 
-    from src.thesis_project.embeddings.encoder import KBBertEmbedder, MockEmbedder
+    from src.thesis_project.embeddings.encoder import MockEmbedder
     from src.thesis_project.preprocessing.data_loader import SVF_PATH, load_svf_data
     from src.thesis_project.scoring.svf_scorer import score_svf
 
@@ -63,11 +93,11 @@ def main():
     if args.mock:
         print("\n⚠ Using MOCK embeddings (random vectors). "
               "Similarity scores are NOT meaningful.")
-        print("  Run without --mock to use KB-BERT.\n")
+        print("  Run without --mock to use a real model.\n")
         encoder = MockEmbedder()
     else:
-        print("\nLoading KB-BERT model...")
-        encoder = KBBertEmbedder()
+        print(f"\nLoading model: {args.model}...")
+        encoder = _build_encoder(args.model)
         print("Model loaded.")
 
     # ── 3. Score ─────────────────────────────────────────
