@@ -52,6 +52,9 @@ def score_svf(
             temporal_gradient        — mean(first-half consecutive sims) minus
                                        mean(second-half consecutive sims);
                                        positive = more clustering early
+            similarity_slope         — OLS regression slope of consecutive
+                                       similarity against position index;
+                                       negative = less clustering over time
 
         Cluster-based (chain method, Pakhomov 2016):
             cluster_count            — number of clusters (including singletons)
@@ -71,6 +74,7 @@ def score_svf(
         "mean_consecutive_similarity": float("nan"),
         "pairwise_similarity_mean": float("nan"),
         "temporal_gradient": float("nan"),
+        "similarity_slope": float("nan"),
         "cluster_count": 0,
         "switch_count": 0,
         "mean_cluster_size": float("nan"),
@@ -115,6 +119,13 @@ def score_svf(
         first_half = float(np.mean(consec_sims[:mid]))
         second_half = float(np.mean(consec_sims[mid:]))
         result["temporal_gradient"] = first_half - second_half
+
+    # Regression-based temporal slope (uses every datapoint; degrades gracefully
+    # on short sequences where halving is too coarse).
+    if len(consec_sims) >= 2:
+        positions = np.arange(len(consec_sims), dtype=float)
+        slope = float(np.polyfit(positions, consec_sims, 1)[0])
+        result["similarity_slope"] = slope
 
     # Cluster/switch analysis (chain method)
     cluster_result = detect_clusters(
