@@ -156,3 +156,88 @@ class MockEmbedder(Embedder):
     def embed_batch(self, texts: list[str]) -> np.ndarray:
         """Embed a list of texts."""
         return np.array([self.embed(t) for t in texts])
+
+
+class SentenceTransformerEmbedder(Embedder):
+    """Embedder using sentence-transformers models.
+
+    Supports any model loadable by the sentence-transformers library,
+    including newer-generation models that require load-time or encode-time
+    keyword arguments (e.g. trust_remote_code, task selection for LoRA
+    adapters).
+
+    Args:
+        model_name: HuggingFace model identifier.
+        prefix: String to prepend to all inputs before encoding.
+            Use "query: " for intfloat/multilingual-e5-* models
+            (symmetric similarity tasks). Default: None (no prefix).
+        model_kwargs: Optional dict of keyword arguments forwarded to the
+            SentenceTransformer constructor. Use this for models that need
+            e.g. {"trust_remote_code": True}. Default: None.
+        encode_kwargs: Optional dict of keyword arguments forwarded to
+            model.encode() on every call. Use this for models that need a
+            per-call argument such as {"task": "text-matching"} for Jina v3.
+            Default: None.
+
+    Examples:
+        # Swedish SBERT — no prefix, no kwargs
+        SentenceTransformerEmbedder("KBLab/sentence-bert-swedish-cased")
+
+        # e5 — requires prefix for symmetric similarity
+        SentenceTransformerEmbedder(
+            "intfloat/multilingual-e5-large",
+            prefix="query: ",
+        )
+
+        # gte-multilingual — needs trust_remote_code at load time
+        SentenceTransformerEmbedder(
+            "Alibaba-NLP/gte-multilingual-base",
+            model_kwargs={"trust_remote_code": True},
+        )
+
+        # Jina v3 — needs both load-time and encode-time kwargs
+        SentenceTransformerEmbedder(
+            "jinaai/jina-embeddings-v3",
+            model_kwargs={"trust_remote_code": True},
+            encode_kwargs={"task": "text-matching"},
+        )
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        prefix: str | None = None,
+        model_kwargs: dict | None = None,
+        encode_kwargs: dict | None = None,
+    ):
+        super().__init__(pooling="mean")
+
+        from sentence_transformers import SentenceTransformer
+
+        self.model_name = model_name
+        self.prefix = prefix
+        self.model_kwargs = model_kwargs or {}
+        self.encode_kwargs = encode_kwargs or {}
+        self.model = SentenceTransformer(model_name, **self.model_kwargs)
+        self.cache: dict[str, np.ndarray] = {}
+
+    def embed(self, text: str) -> np.ndarray:
+        """Get embedding for a text string. Returns 1D numpy array."""
+        if text in self.cache:
+            return self.cache[text]
+        input_text = f"{self.prefix}{text}" if self.prefix else text
+        emb = self.model.encode(input_text, **self.encode_kwargs)
+        self.cache[text] = emb
+        return emb
+
+    def embed_batch(self, texts: list[str]) -> np.ndarray:
+        """Embed a list of texts. Returns (n, dim) numpy array."""
+        uncached = [t for t in texts if t not in self.cache]
+        if uncached:
+            input_texts = [
+                f"{self.prefix}{t}" if self.prefix else t for t in uncached
+            ]
+            embs = self.model.encode(input_texts, **self.encode_kwargs)
+            for text, emb in zip(uncached, embs):
+                self.cache[text] = emb
+        return np.array([self.cache[t] for t in texts])

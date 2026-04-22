@@ -15,6 +15,7 @@ requires-python = ">=3.10"  # KB-BERT/transformers work better with 3.10+
 dependencies = [
     "torch",
     "transformers",
+    "sentence-transformers>=2.7",
     "pandas",
     "numpy",
     "scipy",
