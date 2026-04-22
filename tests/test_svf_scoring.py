@@ -5,6 +5,7 @@ Unit tests for the SVF scorer. Uses MockEmbedder — no GPU required.
 
 import math
 
+import numpy as np
 import pytest
 
 from thesis_project.embeddings.encoder import MockEmbedder
@@ -15,6 +16,10 @@ ENCODER = MockEmbedder()
 ANIMALS = ["hund", "katt", "kisse", "hund", "fisk", "katt"]
 # total=6, unique={'hund','katt','kisse','fisk'}=4, repetitions=2
 
+
+# ──────────────────────────────────────────────────────
+# score_svf — count + similarity metrics
+# ──────────────────────────────────────────────────────
 
 def test_count_metrics():
     result = score_svf(ANIMALS, ENCODER)
@@ -77,6 +82,118 @@ def test_all_same_word():
         assert abs(sim - 1.0) < 1e-5
 
 
-def test_detect_clusters_not_implemented():
-    with pytest.raises(NotImplementedError):
-        detect_clusters(["hund", "katt"], [0.5])
+# ──────────────────────────────────────────────────────
+# detect_clusters — chain method
+# ──────────────────────────────────────────────────────
+
+def test_chain_basic():
+    """Basic chain clustering with clear clusters."""
+    responses = ["hund", "katt", "ko", "elefant", "kamel", "cykel"]
+    consec_sims = [0.64, 0.52, 0.38, 0.60, 0.34]
+    result = detect_clusters(responses, consec_sims, threshold=0.50)
+
+    assert result["cluster_count"] == 3
+    assert result["switch_count"] == 2
+    assert result["cluster_sizes"] == [3, 2, 1]
+    assert result["mean_cluster_size"] == 2.0
+    assert result["max_cluster_size"] == 3
+    assert result["clusters"] == [
+        ["hund", "katt", "ko"],
+        ["elefant", "kamel"],
+        ["cykel"],
+    ]
+
+
+def test_chain_all_above_threshold():
+    """All consecutive similarities above threshold → one big cluster."""
+    responses = ["hund", "katt", "ko"]
+    consec_sims = [0.70, 0.65]
+    result = detect_clusters(responses, consec_sims, threshold=0.50)
+
+    assert result["cluster_count"] == 1
+    assert result["switch_count"] == 0
+    assert result["mean_cluster_size"] == 3.0
+
+
+def test_chain_all_below_threshold():
+    """All below threshold → all singletons."""
+    responses = ["hund", "cykel", "bord"]
+    consec_sims = [0.20, 0.15]
+    result = detect_clusters(responses, consec_sims, threshold=0.50)
+
+    assert result["cluster_count"] == 3
+    assert result["switch_count"] == 2
+    assert result["mean_cluster_size"] == 1.0
+
+
+def test_chain_single_word():
+    """Single word → one singleton cluster."""
+    result = detect_clusters(["hund"], [], threshold=0.50)
+    assert result["cluster_count"] == 1
+    assert result["switch_count"] == 0
+    assert result["mean_cluster_size"] == 1.0
+
+
+def test_chain_empty():
+    """Empty input."""
+    result = detect_clusters([], [], threshold=0.50)
+    assert result["cluster_count"] == 0
+    assert result["switch_count"] == 0
+
+
+def test_chain_threshold_boundary():
+    """Similarity exactly at threshold should be included in cluster."""
+    responses = ["a", "b", "c"]
+    consec_sims = [0.50, 0.49]
+    result = detect_clusters(responses, consec_sims, threshold=0.50)
+
+    assert result["cluster_count"] == 2
+    assert result["cluster_sizes"] == [2, 1]
+
+
+def test_invalid_method():
+    """Non-chain method raises ValueError."""
+    with pytest.raises(ValueError):
+        detect_clusters(["a", "b"], [0.5], threshold=0.5, method="cluster")
+
+
+# ──────────────────────────────────────────────────────
+# score_svf — cluster metrics integration + similarity_slope
+# ──────────────────────────────────────────────────────
+
+def test_score_svf_includes_cluster_metrics():
+    """score_svf output includes cluster/switch metrics."""
+    result = score_svf(["hund", "katt", "ko", "elefant"], ENCODER)
+
+    assert "cluster_count" in result
+    assert "switch_count" in result
+    assert "mean_cluster_size" in result
+    assert "max_cluster_size" in result
+    assert "similarity_slope" in result
+    assert isinstance(result["cluster_count"], int)
+    assert isinstance(result["similarity_slope"], float)
+
+
+def test_score_svf_short_sequence():
+    """Single-word sequence returns nan/zero for cluster metrics."""
+    result = score_svf(["hund"], ENCODER)
+
+    assert result["cluster_count"] == 1
+    assert result["mean_cluster_size"] == 1.0
+    assert np.isnan(result["similarity_slope"])
+
+
+def test_score_svf_empty_sequence():
+    """Empty sequence → zero clusters and nan mean."""
+    result = score_svf([], ENCODER)
+
+    assert result["cluster_count"] == 0
+    assert result["switch_count"] == 0
+    assert np.isnan(result["mean_cluster_size"])
+    assert np.isnan(result["similarity_slope"])
+
+
+def test_score_svf_temporal_gradient_still_present():
+    """temporal_gradient kept for backwards compatibility."""
+    result = score_svf(ANIMALS, ENCODER)
+    assert "temporal_gradient" in result
