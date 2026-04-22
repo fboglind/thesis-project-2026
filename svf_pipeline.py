@@ -8,6 +8,7 @@ Usage:
     python svf_pipeline.py --data data/xlsx/SVF-syntheticData_v1.xlsx
     python svf_pipeline.py --mock                   # mock embeddings (no GPU needed)
     python svf_pipeline.py --model sbert-swedish    # use Swedish SBERT
+    python svf_pipeline.py --threshold 0.70         # cluster threshold for chain method
     python svf_pipeline.py                          # defaults (kb-bert, path from config)
 """
 
@@ -69,6 +70,12 @@ def main():
         default="data/processed/svf_scored_results.csv",
         help="Output CSV path",
     )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.45,
+        help="Cosine similarity threshold for cluster detection. Default: 0.45",
+    )
     args = parser.parse_args()
 
     from src.thesis_project.embeddings.encoder import MockEmbedder
@@ -101,10 +108,12 @@ def main():
         print("Model loaded.")
 
     # ── 3. Score ─────────────────────────────────────────
-    print("\nScoring SVF responses...")
+    print(f"\nScoring SVF responses (cluster threshold = {args.threshold})...")
     records = []
     for p in participants:
-        metrics = score_svf(responses=p["responses"], encoder=encoder)
+        metrics = score_svf(
+            responses=p["responses"], encoder=encoder, threshold=args.threshold
+        )
         records.append(
             {
                 "participant_id": p["participant_id"],
@@ -117,6 +126,11 @@ def main():
                 "mean_consecutive_similarity": metrics["mean_consecutive_similarity"],
                 "pairwise_similarity_mean": metrics["pairwise_similarity_mean"],
                 "temporal_gradient": metrics["temporal_gradient"],
+                "similarity_slope": metrics["similarity_slope"],
+                "cluster_count": metrics["cluster_count"],
+                "switch_count": metrics["switch_count"],
+                "mean_cluster_size": metrics["mean_cluster_size"],
+                "max_cluster_size": metrics["max_cluster_size"],
             }
         )
 
@@ -144,6 +158,11 @@ def main():
                 "MeanConsecSim_mean": sub["mean_consecutive_similarity"].mean(),
                 "PairwiseSim_mean": sub["pairwise_similarity_mean"].mean(),
                 "TemporalGrad_mean": sub["temporal_gradient"].mean(),
+                "SimilaritySlope_mean": sub["similarity_slope"].mean(),
+                "ClusterCount_mean": sub["cluster_count"].mean(),
+                "SwitchCount_mean": sub["switch_count"].mean(),
+                "MeanClusterSize_mean": sub["mean_cluster_size"].mean(),
+                "MaxClusterSize_mean": sub["max_cluster_size"].mean(),
             }
         )
 
