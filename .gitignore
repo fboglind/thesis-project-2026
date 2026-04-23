@@ -29,7 +29,10 @@ data/processed/
 *.out
 *.pt  # PyTorch checkpoint files
 *.pkl
-data/lexical/
+data/lexical/*.xml
+data/lexical/*.pkl
+data/lexical/*.sha256
+data/lexical/*.txt
 
 #Ignore swap and temp files
 *.un~
