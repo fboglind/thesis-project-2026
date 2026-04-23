@@ -29,6 +29,8 @@ data/processed/
 *.out
 *.pt  # PyTorch checkpoint files
 *.pkl
+lexical_resources/
+*.xml
 
 #Ignore swap and temp files
 *.un~
