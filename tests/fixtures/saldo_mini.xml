@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LexicalResource dtdVersion="16">
+  <GlobalInformation>
+    <feat att="languageCoding" val="ISO 639-3" />
+  </GlobalInformation>
+  <Lexicon>
+    <feat att="language" val="swe" />
+    <LexicalEntry>
+      <Lemma />
+      <Sense id="PRIM..1" />
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="djur" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="djur..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="djur..1">
+        <SenseRelation targets="PRIM..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="däggdjur" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="däggdjur..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="däggdjur..1">
+        <SenseRelation targets="djur..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="sällskap" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="sällskap..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="sällskap..1">
+        <SenseRelation targets="djur..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="usling" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="usling..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="usling..1">
+        <SenseRelation targets="PRIM..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="hund" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="hund..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="hund..1">
+        <SenseRelation targets="däggdjur..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+        <SenseRelation targets="sällskap..1">
+          <feat att="label" val="secondary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="hund" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="hund..nn.2" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="hund..2">
+        <SenseRelation targets="usling..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="katt" />
+          <feat att="partOfSpeech" val="nn" />
+          <feat att="lemgram" val="katt..nn.1" />
+        </FormRepresentation>
+      </Lemma>
+      <Sense id="katt..1">
+        <SenseRelation targets="däggdjur..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma />
+      <Sense id="mysterium..1">
+        <SenseRelation targets="PRIM..1">
+          <feat att="label" val="primary" />
+        </SenseRelation>
+      </Sense>
+    </LexicalEntry>
+  </Lexicon>
+</LexicalResource>
