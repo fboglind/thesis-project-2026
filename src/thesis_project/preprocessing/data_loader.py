@@ -56,6 +56,57 @@ def _find_metadata_row(df: pd.DataFrame, label: str) -> int:
 
 
 # ──────────────────────────────────────────────────────
+# BNT Loader
+# ──────────────────────────────────────────────────────
+
+def load_bnt_data(
+    filepath: str | Path = BNT_PATH,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load BNT spreadsheet and separate items from user metadata.
+
+    The BNT sheet is laid out with one row per item (gold word + responses
+    from each user), followed by metadata rows labelled ``Gender:``, ``Age:``,
+    and ``Kategori:`` (diagnosis). This splits the sheet into an items frame
+    and a user-metadata frame.
+
+    Args:
+        filepath: Path to the BNT XLSX file.
+
+    Returns:
+        (items_df, user_meta):
+
+        items_df: DataFrame with columns ``['gold', <user cols>]``, one row
+            per BNT item. Gold words are stripped and lowercased.
+        user_meta: DataFrame with columns ``['user', 'gender', 'age',
+            'diagnosis']``, one row per user.
+    """
+    raw = pd.read_excel(filepath)
+    user_cols = [c for c in raw.columns if str(c).startswith("User")]
+
+    gender_idx = _find_metadata_row(raw, "Gender")
+    age_idx = _find_metadata_row(raw, "Age")
+    cat_idx = _find_metadata_row(raw, "Kategori")
+
+    # Items are the rows before the first metadata row; drop blank rows.
+    items_df = raw.iloc[:gender_idx].copy()
+    items_df = items_df[items_df["Gold"].notna()]
+    items_df = items_df[["Gold"] + user_cols].reset_index(drop=True)
+    items_df.rename(columns={"Gold": "gold"}, inplace=True)
+    items_df["gold"] = items_df["gold"].astype(str).str.strip().str.lower()
+
+    user_meta = pd.DataFrame(
+        {
+            "user": user_cols,
+            "gender": raw.iloc[gender_idx][user_cols].values,
+            "age": pd.to_numeric(raw.iloc[age_idx][user_cols].values, errors="coerce"),
+            "diagnosis": raw.iloc[cat_idx][user_cols].values,
+        }
+    )
+
+    return items_df, user_meta
+
+
+# ──────────────────────────────────────────────────────
 # SVF Loader
 # ──────────────────────────────────────────────────────
 
