@@ -35,29 +35,40 @@ comparison_models:
     name: "intfloat/multilingual-e5-large"
     family: "contrastive"
     embedding_strategy: "mean_pooling"
-    prompt_template: "query: {text}"        # required prefix for E5 family
+    prompt_template: "query: {text}"        # required E5 prefix; verify SentenceTransformerEmbedder applies this
   - label: "Qwen3-0.6B"
     name: "Qwen/Qwen3-Embedding-0.6B"
     family: "instruction"
-    embedding_strategy: "last_token"        # Qwen3 embedding uses last-token pooling
-    instruction: "Retrieve semantically similar Swedish words"
+    embedding_strategy: "last_token"        # informational; sentence-transformers handles internally
+    encode_kwargs:
+      prompt_name: "query"                  # preconfigured Instruct/Query template from the model
   - label: "EmbGemma-300M"
-    name: "google/embeddinggemma-300m"      # verify exact HF ID before first download
+    name: "google/embeddinggemma-300m"      # GATED — requires HF token + license acknowledgement
     family: "instruction"
     embedding_strategy: "mean_pooling"
-    instruction: "Retrieve semantically similar Swedish words"
-  - label: "Harrier-0.6B"
-    name: "microsoft/harrier-oss-v1-0.6b"     # verified via model card 2026-04-29
-    family: "instruction"
-    embedding_strategy: "last_token"          # last-token pooling + L2 norm, handled by sentence-transformers
-    # Two prompt options; use 'sts_query' to match how the model was MTEB-evaluated.
-    # Custom instruction is also valid but introduces an unevaluated tuning choice.
     encode_kwargs:
-      prompt_name: "sts_query"                # = "Instruct: Retrieve semantically similar text\nQuery: "
-    # Alternative (commented):
-    # instruction_template: "Instruct: Retrieve semantically similar Swedish words\nQuery: {text}"
-    model_kwargs:
-      dtype: "auto"                           # bf16 on capable GPUs, fp32 fallback elsewhere
+      prompt_name: "STS"                    # = "task: sentence similarity | query: "
+  - label: "Harrier-0.6B"
+    name: "microsoft/harrier-oss-v1-0.6b"
+    family: "instruction"
+    embedding_strategy: "last_token"        # last-token pooling + L2 norm, handled by sentence-transformers
+    encode_kwargs:
+      prompt_name: "sts_query"              # = "Instruct: Retrieve semantically similar text\nQuery: "
+
+  # Scandinavian-finetuned variants (added 2026-04-29)
+  # Independent fine-tunes by Emil Lykke Jensen; verify training-data languages on each card.
+  - label: "Qwen3-Scandi-0.6B"
+    name: "emillykkejensen/Qwen3-Embedding-Scandi-0.6B"
+    family: "instruction"
+    embedding_strategy: "last_token"
+    encode_kwargs:
+      prompt_name: "query"                  # inherited from base Qwen3 config
+  - label: "EmbGemma-Scandi-300M"
+    name: "emillykkejensen/EmbeddingGemma-Scandi-300m"
+    family: "instruction"
+    embedding_strategy: "mean_pooling"
+    encode_kwargs:
+      prompt_name: "STS"                    # inherited from base EmbeddingGemma config
 
 scoring:
   similarity_metric: "cosine"
