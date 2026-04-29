@@ -45,3 +45,4 @@ CLAUDE.md
 claude_code_prompt_svf_fas_v2.md
 # Ignore these sub-directories
 dir_1/
+.~lock.*#
