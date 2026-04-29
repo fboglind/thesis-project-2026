@@ -20,17 +20,8 @@ model:
 
 # Comparison models for SQ2 (model sensitivity).
 # Pipeline iterates this list; each entry needs to be loadable from HuggingFace.
-# `family` selects the Embedder subclass:
-#   encoder     → KBBertEmbedder (HuggingFace AutoModel + manual pooling)
-#   sbert       → SentenceTransformerEmbedder
-#   contrastive → SentenceTransformerEmbedder (with `prefix` from prompt_template)
-#   instruction → SentenceTransformerEmbedder (with `prefix` built from
-#                 `instruction`; pooling bundled in the model's ST config)
-# Optional per-entry keys consumed by scripts/run_model_comparison.py:
-#   prompt_template — contrastive prefix, e.g. "query: {text}" → prefix "query: "
-#   instruction     — instruction-aware prefix, embedded as
-#                     "Instruct: <instruction>\nQuery: "
-#   model_kwargs    — forwarded verbatim to SentenceTransformer(...)
+# `family` is informational; `embedding_strategy` and (for instruction-aware models)
+# `instruction` / `prompt_template` drive inference behaviour.
 comparison_models:
   - label: "KB-BERT-CLS"
     name: "KB/bert-base-swedish-cased"
@@ -50,20 +41,23 @@ comparison_models:
     family: "instruction"
     embedding_strategy: "last_token"        # Qwen3 embedding uses last-token pooling
     instruction: "Retrieve semantically similar Swedish words"
-    model_kwargs:
-      trust_remote_code: true
   - label: "EmbGemma-300M"
-    name: "google/embeddinggemma-300m"      # PLACEHOLDER — verify exact HF ID before first download
+    name: "google/embeddinggemma-300m"      # verify exact HF ID before first download
     family: "instruction"
     embedding_strategy: "mean_pooling"
     instruction: "Retrieve semantically similar Swedish words"
   - label: "Harrier-0.6B"
-    name: "microsoft/Harrier-OSS-v1-0.6B"   # PLACEHOLDER — verify exact HF ID before first download (Microsoft Harrier-OSS-v1, released March 2026)
+    name: "microsoft/harrier-oss-v1-0.6b"     # verified via model card 2026-04-29
     family: "instruction"
-    embedding_strategy: "mean_pooling"      # check Harrier model card; may differ
-    instruction: "Retrieve semantically similar Swedish words"
+    embedding_strategy: "last_token"          # last-token pooling + L2 norm, handled by sentence-transformers
+    # Two prompt options; use 'sts_query' to match how the model was MTEB-evaluated.
+    # Custom instruction is also valid but introduces an unevaluated tuning choice.
+    encode_kwargs:
+      prompt_name: "sts_query"                # = "Instruct: Retrieve semantically similar text\nQuery: "
+    # Alternative (commented):
+    # instruction_template: "Instruct: Retrieve semantically similar Swedish words\nQuery: {text}"
     model_kwargs:
-      trust_remote_code: true
+      dtype: "auto"                           # bf16 on capable GPUs, fp32 fallback elsewhere
 
 scoring:
   similarity_metric: "cosine"
