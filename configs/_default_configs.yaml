@@ -1,22 +1,73 @@
 # configs/_default_configs.yaml
+# Embedding-Based Graded Scoring of Paraphasic Errors in Neuropsychological Language Tests
+# Updated 2026-04-28 — v3 datasets (with MMSE), comparison models for SQ2
+
 paths:
   data_dir: data/xlsx
-  processed_dir: data/processed
+  processed_data_dir: data/processed       # was 'processed_dir' — canonical key matches notebook code
   notebooks_dir: notebooks
   model_dir: models
   outputs_dir: outputs
   scripts_dir: scripts
   tests_dir: tests
-  
+
+# Primary model — used by single-model pipelines (existing code reads config['model'])
 model:
-  name: "KB/bert-base-swedish-cased-new"  # Define when model is downloaded
-  embedding_strategy: "mean_pooling"       # Options: cls_token, mean_pooling
+  name: "KB/bert-base-swedish-cased"
+  embedding_strategy: "mean_pooling"        # cls_token | mean_pooling | last_token
   max_length: 128
   batch_size: 32
 
+# Comparison models for SQ2 (model sensitivity).
+# Pipeline iterates this list; each entry needs to be loadable from HuggingFace.
+# `family` selects the Embedder subclass:
+#   encoder     → KBBertEmbedder (HuggingFace AutoModel + manual pooling)
+#   sbert       → SentenceTransformerEmbedder
+#   contrastive → SentenceTransformerEmbedder (with `prefix` from prompt_template)
+#   instruction → SentenceTransformerEmbedder (with `prefix` built from
+#                 `instruction`; pooling bundled in the model's ST config)
+# Optional per-entry keys consumed by scripts/run_model_comparison.py:
+#   prompt_template — contrastive prefix, e.g. "query: {text}" → prefix "query: "
+#   instruction     — instruction-aware prefix, embedded as
+#                     "Instruct: <instruction>\nQuery: "
+#   model_kwargs    — forwarded verbatim to SentenceTransformer(...)
+comparison_models:
+  - label: "KB-BERT-CLS"
+    name: "KB/bert-base-swedish-cased"
+    family: "encoder"
+    embedding_strategy: "cls_token"
+  - label: "Swedish-SBERT"
+    name: "KBLab/sentence-bert-swedish-cased"
+    family: "sbert"
+    embedding_strategy: "mean_pooling"
+  - label: "mE5-large"
+    name: "intfloat/multilingual-e5-large"
+    family: "contrastive"
+    embedding_strategy: "mean_pooling"
+    prompt_template: "query: {text}"        # required prefix for E5 family
+  - label: "Qwen3-0.6B"
+    name: "Qwen/Qwen3-Embedding-0.6B"
+    family: "instruction"
+    embedding_strategy: "last_token"        # Qwen3 embedding uses last-token pooling
+    instruction: "Retrieve semantically similar Swedish words"
+    model_kwargs:
+      trust_remote_code: true
+  - label: "EmbGemma-300M"
+    name: "google/embeddinggemma-300m"      # PLACEHOLDER — verify exact HF ID before first download
+    family: "instruction"
+    embedding_strategy: "mean_pooling"
+    instruction: "Retrieve semantically similar Swedish words"
+  - label: "Harrier-0.6B"
+    name: "microsoft/Harrier-OSS-v1-0.6B"   # PLACEHOLDER — verify exact HF ID before first download (Microsoft Harrier-OSS-v1, released March 2026)
+    family: "instruction"
+    embedding_strategy: "mean_pooling"      # check Harrier model card; may differ
+    instruction: "Retrieve semantically similar Swedish words"
+    model_kwargs:
+      trust_remote_code: true
+
 scoring:
   similarity_metric: "cosine"
-   # NOTE: Placeholder values - to be determined through analysis, could be test-specific (for BNT, SVF..)
+  # Placeholder values — calibrate empirically per test, may be test-specific
   thresholds:
     correct: 0.85
     semantically_related: 0.50
@@ -24,33 +75,43 @@ scoring:
 
 preprocessing:
   lowercase: true
-  remove_articles: true
+  remove_articles: true                     # strips leading "en " / "ett " from BNT responses
   lemmatize: true
   language: "sv"
 
+# Dataset registry — v3 includes MMSE in participant metadata
 data:
+  version: "v3"
+  metadata_fields: ["Gender", "Age", "Category", "MMSE"]
   tests:
     - name: "bnt"
-      file: "BNT-syntheticData_v2.xlsx"
+      file: "sweBNT-syntheticData_v3.xlsx"
       type: "confrontation_naming"
       has_gold_column: true
     - name: "svf"
-      file: "SVF-syntheticData_v1.xlsx"
+      file: "sweSVF-syntheticData_v3.xlsx"
       type: "semantic_fluency"
       has_gold_column: false
     - name: "fas"
-      file: "FAS-syntheticData_v1.xlsx"
+      file: "sweFAS-syntheticData_v3.xlsx"
       type: "phonemic_fluency"
       has_gold_column: false
 
+# Per-test pipeline configs (kept for backward compatibility with existing scorers)
+bnt:
+  data_path: "data/xlsx/sweBNT-syntheticData_v3.xlsx"
+  # sheet_name:                              # leave unset to use first sheet
+  output_path: "data/processed/bnt_scored_results.csv"
+
 svf:
-  data_path: "data/xlsx/SVF-syntheticData_v1.xlsx"
-  sheet_name: "SVF_djur_60s"
-  model_name: "KB/bert-base-swedish-cased"
+  data_path: "data/xlsx/sweSVF-syntheticData_v3.xlsx"
+  # sheet_name: "SVF_djur_60s"               # verify sheet name in v3 before re-enabling
   output_path: "data/processed/svf_scored_results.csv"
-  cluster_threshold: 0.45  # to be calibrated empirically
+  cluster_threshold: 0.45                    # default; calibrated by sweep on real data
+  threshold_sweep_range: [0.30, 0.70]
+  threshold_sweep_step: 0.025
 
 fas:
-  data_path: "data/xlsx/FAS-syntheticData_v1.xlsx"
-  sheet_name: "FAS_simulation"
+  data_path: "data/xlsx/sweFAS-syntheticData_v3.xlsx"
+  # sheet_name: "FAS_simulation"             # verify sheet name in v3 before re-enabling
   output_path: "data/processed/fas_scored_results.csv"
