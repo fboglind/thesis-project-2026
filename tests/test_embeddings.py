@@ -1,4 +1,6 @@
 """Tests for embedding extraction with configurable pooling."""
+import os
+
 import numpy as np
 import pytest
 
@@ -8,6 +10,16 @@ from thesis_project.embeddings import (
     MockEmbedder,
     SentenceTransformerEmbedder,
 )
+
+
+_HEAVY = pytest.mark.skipif(
+    os.environ.get("RUN_HEAVY_TESTS") != "1",
+    reason="Heavy test, set RUN_HEAVY_TESTS=1 to run.",
+)
+
+
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
 def test_mock_embedder_interface():
@@ -126,3 +138,73 @@ def test_sentence_transformer_embed_shapes():
 def test_sentence_transformer_is_embedder():
     """SentenceTransformerEmbedder is a subclass of Embedder."""
     assert issubclass(SentenceTransformerEmbedder, Embedder)
+
+
+# ── Heavy smoke tests for the Phase 4a comparison models ──
+# Gated by RUN_HEAVY_TESTS=1 so CI doesn't pull multi-GB weights.
+
+_QWEN3_INSTRUCT_PREFIX = (
+    "Instruct: Retrieve semantically similar Swedish words\n"
+    "Query: "
+)
+
+
+@_HEAVY
+def test_qwen3_embedding_smoke():
+    """Qwen3-Embedding-0.6B loads and produces sensible Swedish-word similarities."""
+    emb = SentenceTransformerEmbedder(
+        "Qwen/Qwen3-Embedding-0.6B",
+        prefix=_QWEN3_INSTRUCT_PREFIX,
+        model_kwargs={"trust_remote_code": True},
+    )
+    v_kamel = emb.embed("kamel")
+    v_hast = emb.embed("häst")
+    v_cykel = emb.embed("cykel")
+    assert v_kamel.ndim == 1
+    sim_animals = _cosine(v_kamel, v_hast)
+    sim_unrelated = _cosine(v_kamel, v_cykel)
+    assert sim_animals > sim_unrelated, (
+        f"Expected camel-horse > camel-bicycle similarity, "
+        f"got animals={sim_animals:.3f}, unrelated={sim_unrelated:.3f}"
+    )
+
+
+@_HEAVY
+def test_embeddinggemma_smoke():
+    """EmbeddingGemma-300M loads and produces sensible Swedish-word similarities.
+
+    NOTE: HuggingFace ID is a placeholder in YAML — verify
+    google/embeddinggemma-300m on the HF hub before first run.
+    """
+    emb = SentenceTransformerEmbedder(
+        "google/embeddinggemma-300m",
+        prefix=_QWEN3_INSTRUCT_PREFIX,
+    )
+    v_kamel = emb.embed("kamel")
+    v_hast = emb.embed("häst")
+    v_cykel = emb.embed("cykel")
+    sim_animals = _cosine(v_kamel, v_hast)
+    sim_unrelated = _cosine(v_kamel, v_cykel)
+    assert sim_animals > sim_unrelated
+
+
+@_HEAVY
+def test_harrier_smoke():
+    """Harrier-OSS-v1 0.6B loads and produces sensible Swedish-word similarities.
+
+    NOTE: HuggingFace ID is a placeholder in YAML — verify the exact
+    Microsoft Harrier-OSS-v1 0.6B identifier on the HF hub before first
+    run. If the ID fails, do NOT substitute a different size; report and
+    stop (see PHASE_4A_INSTRUCTIONS.md §2c).
+    """
+    emb = SentenceTransformerEmbedder(
+        "microsoft/Harrier-OSS-v1-0.6B",
+        prefix=_QWEN3_INSTRUCT_PREFIX,
+        model_kwargs={"trust_remote_code": True},
+    )
+    v_kamel = emb.embed("kamel")
+    v_hast = emb.embed("häst")
+    v_cykel = emb.embed("cykel")
+    sim_animals = _cosine(v_kamel, v_hast)
+    sim_unrelated = _cosine(v_kamel, v_cykel)
+    assert sim_animals > sim_unrelated
