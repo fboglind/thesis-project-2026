@@ -29,6 +29,7 @@ data/processed/
 *.out
 *.pt  # PyTorch checkpoint files
 *.pkl
+data/lexical/
 
 #Ignore swap and temp files
 *.un~
@@ -44,3 +45,9 @@ CLAUDE.md
 claude_code_prompt_svf_fas_v2.md
 # Ignore these sub-directories
 dir_1/
+.~lock.*#
+
+# Run logs from probe / pipeline / sweep scripts
+model_comparison*.txt
+pipe-*.txt
+modelcomp-*.txt

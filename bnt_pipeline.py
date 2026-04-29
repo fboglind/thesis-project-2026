@@ -5,7 +5,7 @@ Computes graded semantic similarity scores for Boston Naming Test responses
 using a configurable Swedish embedding model and cosine similarity.
 
 Usage:
-    python bnt_pipeline.py --data path/to/BNT-syntheticData_v2.xlsx
+    python bnt_pipeline.py --data path/to/sweBNT-syntheticData_v3.xlsx
     python bnt_pipeline.py --mock                   # mock embeddings (no GPU needed)
     python bnt_pipeline.py --model sbert-swedish    # use Swedish SBERT
     python bnt_pipeline.py --model e5-large         # use multilingual e5-large
@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import logging
 import re
 import warnings
 from pathlib import Path
@@ -22,6 +23,8 @@ import pandas as pd
 from sklearn.metrics.pairwise import cosine_similarity
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 MODEL_CHOICES = ["kb-bert", "sbert-swedish", "e5-large", "e5-large-instruct"]
 
@@ -97,7 +100,7 @@ def preprocess_responses(items_df: pd.DataFrame, user_meta: pd.DataFrame) -> pd.
     """Build long-format response table with normalized responses.
 
     Returns DataFrame with columns:
-        gold, user, diagnosis, age, gender, raw_response, normalized,
+        gold, user, gender, age, diagnosis, mmse, raw_response, normalized,
         is_exact_match, is_non_response
     """
     user_cols = user_meta["user"].tolist()
@@ -121,8 +124,10 @@ def preprocess_responses(items_df: pd.DataFrame, user_meta: pd.DataFrame) -> pd.
                 {
                     "gold": gold,
                     "user": user,
-                    "diagnosis": meta_lookup.loc[user, "diagnosis"],
+                    "gender": meta_lookup.loc[user, "gender"],
                     "age": meta_lookup.loc[user, "age"],
+                    "diagnosis": meta_lookup.loc[user, "diagnosis"],
+                    "mmse": meta_lookup.loc[user, "mmse"],
                     "raw_response": raw_resp,
                     "normalized": norm,
                     "is_exact_match": is_exact,
@@ -265,8 +270,19 @@ def analyze_results(scored: pd.DataFrame) -> None:
 
 
 def save_results(scored: pd.DataFrame, output_path: str) -> None:
-    """Save scored results to CSV."""
-    scored.to_csv(output_path, index=False)
+    """Save scored results to CSV.
+
+    Output schema (Phase 4a): the long-format scored table is reshaped so
+    the leading metadata columns are
+    ``participant_id, gender, age, diagnosis, mmse``, followed by the
+    per-item scoring columns. ``participant_id`` is the canonical name
+    used downstream; ``user`` is dropped after the rename.
+    """
+    out = scored.rename(columns={"user": "participant_id"})
+    leading = ["participant_id", "gender", "age", "diagnosis", "mmse"]
+    other = [c for c in out.columns if c not in leading]
+    out = out[leading + other]
+    out.to_csv(output_path, index=False)
     print(f"\nResults saved to {output_path}")
 
 
@@ -304,6 +320,12 @@ def main():
     from src.thesis_project.embeddings.encoder import MockEmbedder
     from src.thesis_project.preprocessing.data_loader import BNT_PATH, load_bnt_data
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logger.info(
+        "Per-test metadata only; cross-file joins are not valid on v3 data. "
+        "See data/processed/harmonization_check_v3.csv."
+    )
+
     data_path = args.data if args.data else BNT_PATH
 
     # ── 1. Load ──────────────────────────────────────────
@@ -311,6 +333,8 @@ def main():
     items_df, user_meta = load_bnt_data(data_path)
     print(f"  {len(items_df)} items, {len(user_meta)} users")
     print(f"  Diagnoses: {dict(user_meta['diagnosis'].value_counts())}")
+    n_mmse = user_meta["mmse"].notna().sum()
+    print(f"  MMSE: {n_mmse}/{len(user_meta)} present")
 
     # ── 2. Preprocess ────────────────────────────────────
     print("\nPreprocessing responses...")

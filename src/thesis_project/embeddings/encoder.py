@@ -170,7 +170,11 @@ class SentenceTransformerEmbedder(Embedder):
         model_name: HuggingFace model identifier.
         prefix: String to prepend to all inputs before encoding.
             Use "query: " for intfloat/multilingual-e5-* models
-            (symmetric similarity tasks). Default: None (no prefix).
+            (symmetric similarity tasks). For instruction-aware models
+            (Qwen3, EmbeddingGemma) the entire ``"Instruct: ...\\nQuery: "``
+            template can be encoded as a single ``prefix`` string —
+            ``instruction_template`` is intentionally not separate.
+            Default: None (no prefix).
         model_kwargs: Optional dict of keyword arguments forwarded to the
             SentenceTransformer constructor. Use this for models that need
             e.g. {"trust_remote_code": True}. Default: None.
@@ -178,6 +182,25 @@ class SentenceTransformerEmbedder(Embedder):
             model.encode() on every call. Use this for models that need a
             per-call argument such as {"task": "text-matching"} for Jina v3.
             Default: None.
+
+    Phase 4a — verified-ID notes (Phase-4a model sweep, BNT-only):
+
+    * ``Qwen/Qwen3-Embedding-0.6B`` — verified on the HF hub. Uses
+      last-token pooling, bundled in the model's sentence-transformers
+      config; no encoder change needed. Loading requires
+      ``model_kwargs={"trust_remote_code": True}``. Recommended prompt
+      template (passed via ``prefix``):
+      ``"Instruct: Retrieve semantically similar Swedish words\\nQuery: "``.
+    * ``google/embeddinggemma-300m`` — placeholder ID; verify on HF
+      before first download. EmbeddingGemma was announced under the
+      ``google`` org; if loading fails, check whether the published ID
+      is hyphenated (``embedding-gemma-300m``) and update YAML.
+    * ``microsoft/Harrier-OSS-v1-0.6B`` — placeholder ID. Harrier-OSS-v1
+      was released by Microsoft in **March 2026** in 270M, 0.6B, and 27B
+      variants; we want the 0.6B for parity with Qwen3-0.6B. Verify the
+      exact HF ID on the model card before first download. If the
+      documented ID fails to load, do NOT substitute a different size —
+      report and stop.
 
     Examples:
         # Swedish SBERT — no prefix, no kwargs
@@ -200,6 +223,17 @@ class SentenceTransformerEmbedder(Embedder):
             "jinaai/jina-embeddings-v3",
             model_kwargs={"trust_remote_code": True},
             encode_kwargs={"task": "text-matching"},
+        )
+
+        # Qwen3-Embedding — last-token pooling bundled in the model's
+        # sentence-transformers config; instruction encoded via prefix.
+        SentenceTransformerEmbedder(
+            "Qwen/Qwen3-Embedding-0.6B",
+            prefix=(
+                "Instruct: Retrieve semantically similar Swedish words\\n"
+                "Query: "
+            ),
+            model_kwargs={"trust_remote_code": True},
         )
     """
 
