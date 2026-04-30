@@ -88,6 +88,8 @@ def main():
         "See data/processed/harmonization_check_v3.csv."
     )
 
+    import yaml
+
     from src.thesis_project.embeddings.encoder import MockEmbedder
     from src.thesis_project.lexical.word_frequency import WordFrequencyProvider
     from src.thesis_project.preprocessing.data_loader import SVF_PATH, load_svf_data
@@ -95,7 +97,17 @@ def main():
 
     data_path = args.data if args.data else SVF_PATH
 
-    frequency_provider = WordFrequencyProvider(source="wordfreq")
+    config_path = Path(__file__).resolve().parent / "configs" / "_default_configs.yaml"
+    with open(config_path, "r") as cfg_f:
+        cfg = yaml.safe_load(cfg_f)
+    svf_cfg = cfg.get("svf", {}) or {}
+    frequency_source = svf_cfg.get("frequency_source", "wordfreq")
+    if args.threshold == parser.get_default("threshold"):
+        cfg_threshold = svf_cfg.get("cluster_threshold")
+        if cfg_threshold is not None:
+            args.threshold = float(cfg_threshold)
+
+    frequency_provider = WordFrequencyProvider(source=frequency_source)
 
     # ── 1. Load ──────────────────────────────────────────
     print(f"Loading SVF data from {data_path}...")
