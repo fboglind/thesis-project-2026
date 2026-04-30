@@ -448,6 +448,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
+    # Drop participants with NaN in any surviving feature. This catches
+    # edge cases like a single-unique-word response giving NaN
+    # pairwise_similarity_mean — sklearn estimators don't accept NaN.
+    n_before = len(df)
+    df = df.dropna(subset=surviving_cols).reset_index(drop=True)
+    n_dropped_features = n_before - len(df)
+    if n_dropped_features:
+        logger.warning(
+            "Dropped %d/%d participants with NaN in surviving feature(s) %s.",
+            n_dropped_features, n_before, surviving_cols,
+        )
+    if n_before > 0 and n_dropped_features / n_before > 0.10:
+        logger.error(
+            "More than 10%% of participants (%d/%d) have NaN in a surviving "
+            "feature; refusing to run on heavily-truncated data.",
+            n_dropped_features, n_before,
+        )
+        return 3
+    if len(df) < CV_FOLDS:
+        logger.error(
+            "Only %d participants remain after NaN filtering; need ≥ %d for "
+            "%d-fold CV.", len(df), CV_FOLDS, CV_FOLDS,
+        )
+        return 3
+
     seed = int(args.random_seed)
     np.random.seed(seed)
 
