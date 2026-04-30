@@ -111,10 +111,20 @@ bnt:
 svf:
   data_path: "data/xlsx/sweSVF-syntheticData_v3.xlsx"
   # sheet_name: "SVF_djur_60s"               # verify sheet name in v3 before re-enabling
-  output_path: "data/processed/svf_scored_results.csv"
-  cluster_threshold: 0.45                    # default; calibrated by sweep on real data
+  output_path: "data/processed/svf_results_with_mmse.csv"
+  # Phase 3 calibrated value: unique threshold at which both
+  # mean_cluster_size and switch_count cross p < 0.001 in
+  # between-group Kruskal–Wallis (Troyer-style balance point).
+  # Pinned a priori; downstream regression code does not re-calibrate.
+  cluster_threshold: 0.45
   threshold_sweep_range: [0.30, 0.70]
   threshold_sweep_step: 0.025
+  # Word-frequency backend for the Linz MWF feature.
+  # 'wordfreq' uses the wordfreq Python package (Linz-comparable,
+  # always available). 'sucx' loads a SUCX-3.0-derived CSV from
+  # data/external/sucx_frequencies.csv (Språkbanken-aligned;
+  # preprocessing is a separate manual step).
+  frequency_source: wordfreq
 
 fas:
   data_path: "data/xlsx/sweFAS-syntheticData_v3.xlsx"
