@@ -197,3 +197,63 @@ def test_score_svf_temporal_gradient_still_present():
     """temporal_gradient kept for backwards compatibility."""
     result = score_svf(ANIMALS, ENCODER)
     assert "temporal_gradient" in result
+
+
+# ──────────────────────────────────────────────────────
+# score_svf — mean_word_frequency integration
+# ──────────────────────────────────────────────────────
+
+def _wordfreq_provider():
+    from thesis_project.lexical.word_frequency import WordFrequencyProvider
+    return WordFrequencyProvider(source="wordfreq")
+
+
+def test_score_svf_includes_mean_word_frequency():
+    """score_svf output dict contains mean_word_frequency key when provider is given."""
+    provider = _wordfreq_provider()
+    result = score_svf(
+        responses=["hund", "katt", "fågel"],
+        encoder=ENCODER,
+        threshold=0.45,
+        frequency_provider=provider,
+    )
+    assert "mean_word_frequency" in result
+    assert result["mean_word_frequency"] > 3.0  # common animal words
+
+
+def test_score_svf_mwf_with_empty_responses():
+    """Empty responses → mean_word_frequency is NaN."""
+    provider = _wordfreq_provider()
+    result = score_svf(
+        responses=[],
+        encoder=ENCODER,
+        threshold=0.45,
+        frequency_provider=provider,
+    )
+    assert math.isnan(result["mean_word_frequency"])
+
+
+def test_score_svf_mwf_without_provider_is_nan():
+    """No provider → mean_word_frequency present as NaN, no crash."""
+    result = score_svf(["hund", "katt"], ENCODER)
+    assert "mean_word_frequency" in result
+    assert math.isnan(result["mean_word_frequency"])
+
+
+def test_score_svf_mwf_uses_unique_words(monkeypatch):
+    """MWF is computed on the unique-response set, not the raw repeated list."""
+    captured = {}
+
+    class StubProvider:
+        def mean_word_frequency(self, words):
+            captured["words"] = list(words)
+            return 1.23
+
+    result = score_svf(
+        responses=["hund", "katt", "hund"],
+        encoder=ENCODER,
+        threshold=0.45,
+        frequency_provider=StubProvider(),
+    )
+    assert result["mean_word_frequency"] == 1.23
+    assert sorted(captured["words"]) == ["hund", "katt"]

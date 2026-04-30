@@ -21,6 +21,7 @@ def score_svf(
     encoder,
     semantic_resource=None,
     threshold: float = 0.45,
+    frequency_provider=None,
 ) -> dict:
     """Compute SVF metrics for a single participant's response sequence.
 
@@ -34,6 +35,11 @@ def score_svf(
             Not used — pass None.
         threshold: Cosine similarity threshold for chain-based cluster
             detection. Passed through to detect_clusters.
+        frequency_provider: Optional ``WordFrequencyProvider``. When supplied,
+            the returned dict includes ``mean_word_frequency`` (Linz MWF
+            feature). When ``None``, the field is NaN. Injected rather than
+            constructed so the scorer stays frequency-agnostic and tests can
+            stub it.
 
     Returns:
         dict with keys:
@@ -62,6 +68,12 @@ def score_svf(
             mean_cluster_size        — sum(cluster_sizes) / cluster_count
             max_cluster_size         — size of largest cluster
             clusters                 — list[list[str]] of grouped responses
+
+        Lexical:
+            mean_word_frequency      — mean Zipf frequency of unique
+                                       responses, via frequency_provider;
+                                       NaN if no provider is supplied or
+                                       responses is empty
     """
     n = len(responses)
     unique = list(set(responses))
@@ -80,7 +92,11 @@ def score_svf(
         "mean_cluster_size": float("nan"),
         "max_cluster_size": 0,
         "clusters": [],
+        "mean_word_frequency": float("nan"),
     }
+
+    if frequency_provider is not None and unique:
+        result["mean_word_frequency"] = frequency_provider.mean_word_frequency(unique)
 
     if n < 2:
         if n == 1:
