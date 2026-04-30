@@ -31,8 +31,7 @@ Pre-registered methodological decisions (do not change post-hoc):
 
 Why Spearman, not Pearson: MMSE has known ceiling effects and a
 heavily skewed distribution; Pearson is misleading. (Linz's own
-analysis is similarly fragile; this is worth a footnote in the
-thesis.)
+analysis is similarly fragile.)
 
 Why no lemmatisation in MWF: SVF responses are already lemma-like
 single nouns; adding a lemmatiser introduces a dependency and a new
