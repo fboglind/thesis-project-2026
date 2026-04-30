@@ -21,6 +21,7 @@ dependencies = [
     "scipy",
     "pyyaml",
     "scikit-learn",
+    "wordfreq>=3.0",
 ]
 
 [project.optional-dependencies]
