@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import logging
 import warnings
 from pathlib import Path
 
@@ -20,6 +21,8 @@ import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 MODEL_CHOICES = ["kb-bert", "sbert-swedish", "e5-large", "e5-large-instruct"]
 
@@ -67,16 +70,23 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="data/processed/svf_scored_results.csv",
+        default="data/processed/svf_results_with_mmse.csv",
         help="Output CSV path",
     )
     parser.add_argument(
         "--threshold",
         type=float,
         default=0.45,
-        help="Cosine similarity threshold for cluster detection. Default: 0.45",
+        help="Cosine similarity threshold for cluster detection. Default: 0.45 "
+             "(Phase 3 calibrated value).",
     )
     args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logger.info(
+        "Per-test metadata only; cross-file joins are not valid on v3 data. "
+        "See data/processed/harmonization_check_v3.csv."
+    )
 
     from src.thesis_project.embeddings.encoder import MockEmbedder
     from src.thesis_project.preprocessing.data_loader import SVF_PATH, load_svf_data
@@ -92,6 +102,15 @@ def main():
     diagnoses = [p["diagnosis"] for p in participants]
     diag_counts = pd.Series(diagnoses).value_counts().to_dict()
     print(f"  Diagnoses: {diag_counts}")
+
+    mmse_values = [p["mmse"] for p in participants]
+    n_mmse_present = sum(1 for v in mmse_values if v is not None and not pd.isna(v))
+    print(f"  MMSE: {n_mmse_present}/{len(participants)} present")
+    if n_mmse_present == 0:
+        logger.info(
+            "No MMSE values present in SVF data; mmse column will be all NaN. "
+            "This is expected for legacy v1/v2 inputs."
+        )
 
     total_responses = sum(len(p["responses"]) for p in participants)
     print(f"  Total responses to embed: {total_responses}")
@@ -120,6 +139,7 @@ def main():
                 "diagnosis": p["diagnosis"],
                 "age": p["age"],
                 "gender": p["gender"],
+                "mmse": p["mmse"],
                 "total_words": metrics["total_words"],
                 "unique_words": metrics["unique_words"],
                 "repetitions": metrics["repetitions"],
@@ -128,8 +148,8 @@ def main():
                 "temporal_gradient": metrics["temporal_gradient"],
                 "similarity_slope": metrics["similarity_slope"],
                 "cluster_count": metrics["cluster_count"],
-                "switch_count": metrics["switch_count"],
                 "mean_cluster_size": metrics["mean_cluster_size"],
+                "switch_count": metrics["switch_count"],
                 "max_cluster_size": metrics["max_cluster_size"],
             }
         )
