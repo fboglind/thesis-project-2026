@@ -5,7 +5,7 @@ Scores participant responses for the SVF animal-fluency test using
 cosine similarity metrics following Pakhomov et al. (2016) / Troyer et al. (1997).
 
 Usage:
-    python svf_pipeline.py --data data/xlsx/SVF-syntheticData_v1.xlsx
+    python svf_pipeline.py --data data/xlsx/sweSVF-syntheticData_v3.xlsx
     python svf_pipeline.py --mock                   # mock embeddings (no GPU needed)
     python svf_pipeline.py --model sbert-swedish    # use Swedish SBERT
     python svf_pipeline.py --threshold 0.045         # cluster threshold for chain method
