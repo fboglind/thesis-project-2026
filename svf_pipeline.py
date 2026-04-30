@@ -8,7 +8,7 @@ Usage:
     python svf_pipeline.py --data data/xlsx/SVF-syntheticData_v1.xlsx
     python svf_pipeline.py --mock                   # mock embeddings (no GPU needed)
     python svf_pipeline.py --model sbert-swedish    # use Swedish SBERT
-    python svf_pipeline.py --threshold 0.70         # cluster threshold for chain method
+    python svf_pipeline.py --threshold 0.045         # cluster threshold for chain method
     python svf_pipeline.py                          # defaults (kb-bert, path from config)
 """
 
@@ -59,7 +59,7 @@ def main():
     parser.add_argument(
         "--model",
         choices=MODEL_CHOICES,
-        default="kb-bert",
+        default="sbert-swedish",
         help="Embedding model preset (ignored if --mock). Default: kb-bert",
     )
     parser.add_argument(
