@@ -36,7 +36,7 @@ def main():
 
     # Import here so the package is only required at runtime
     from src.thesis_project.preprocessing.data_loader import FAS_PATH, load_fas_data
-    from src.thesis_project.scoring.fas_scorer import score_fas
+    from src.thesis_project.scoring.fas_scorer import score_fas_counts
 
     data_path = args.data if args.data else FAS_PATH
 
@@ -53,7 +53,7 @@ def main():
     print("\nScoring FAS responses...")
     records = []
     for p in participants:
-        metrics = score_fas(
+        metrics = score_fas_counts(
             responses_f=p["responses_f"],
             responses_a=p["responses_a"],
             responses_s=p["responses_s"],

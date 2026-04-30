@@ -1,11 +1,37 @@
 """fas_scorer.py
 
 Scoring for Phonemic Verbal Fluency (FAS) test responses.
-Primarily count-based following Tallberg et al. (2008) and
-Borkowski et al. (1967).
+
+This module exposes two complementary public APIs:
+
+- :func:`score_fas_counts` — the count-based scorer (Tallberg et al.
+  2008, Borkowski et al. 1967): tracks per-letter totals, proper-noun
+  flags, repetitions, and total FAS score. Originally the only scorer
+  in the project; kept under this name to avoid breaking older callers.
+
+- :func:`cluster_letter` and :func:`score_fas` — Phase 4c clustering
+  scorer (Troyer 1997, chain method per Pakhomov 2016) using the
+  pre-registered Swedish-orthographic rules in
+  :mod:`thesis_project.scoring.phonemic_rules`. The clustering scorer
+  expects pre-filtered word lists (proper-noun markers stripped,
+  repetitions removed) and is responsible for the per-letter and
+  aggregated cluster metrics plus the Linz MWF feature.
+
+The two APIs are kept separate so the cluster scorer can be tested in
+isolation; the FAS pipeline calls both.
 """
 
+from __future__ import annotations
+
+import math
+
 import numpy as np
+
+from .phonemic_rules import linked
+
+# Re-export the original count-based scorer name so legacy callers
+# still resolve. The new clustering ``score_fas`` is defined below.
+# (The two share the module but operate on different inputs.)
 
 
 # ──────────────────────────────────────────────────────
@@ -90,13 +116,18 @@ def _score_letter(responses: list[str], flagged_words: set[str]) -> dict:
 # Public API
 # ──────────────────────────────────────────────────────
 
-def score_fas(
+def score_fas_counts(
     responses_f: list[str],
     responses_a: list[str],
     responses_s: list[str],
     flagged_errors: list[str] | None = None,
 ) -> dict:
-    """Compute FAS metrics for a single participant.
+    """Compute count-based FAS metrics for a single participant.
+
+    This is the original scorer (Tallberg/Borkowski lineage). It does
+    its own proper-noun flagging and repetition counting. For the
+    Phase 4c clustering metrics, see :func:`score_fas` below — that
+    function expects already-filtered word lists.
 
     Args:
         responses_f: Response slots for letter F (empty string = no word at
@@ -163,4 +194,149 @@ def score_fas(
         "mean_edit_distance_f": f["mean_edit_distance"],
         "mean_edit_distance_a": a["mean_edit_distance"],
         "mean_edit_distance_s": s["mean_edit_distance"],
+    }
+
+
+# ──────────────────────────────────────────────────────
+# Phase 4c clustering scorer (Troyer/Pakhomov chain method)
+# ──────────────────────────────────────────────────────
+
+def cluster_letter(words: list[str]) -> dict:
+    """Chain-method clustering for one letter's response sequence.
+
+    Two consecutive words form a cluster link when
+    :func:`thesis_project.scoring.phonemic_rules.linked` returns True.
+    Singletons count as clusters of size 1 (Pakhomov 2016 convention),
+    matching the Phase 3 SVF scorer.
+
+    Args:
+        words: ordered list of valid words (already lowercased, with
+            proper-noun markers stripped, repetitions removed).
+
+    Returns:
+        dict with keys:
+            clusters          — list[list[str]]
+            cluster_sizes     — list[int]
+            cluster_count     — int
+            switch_count      — int (= max(0, cluster_count - 1))
+            mean_cluster_size — float (NaN if cluster_count == 0)
+            max_cluster_size  — int
+
+    Edge cases:
+        - words == []          : count=0, switch=0, mean=NaN, max=0
+        - len(words) == 1      : count=1, switch=0, mean=1.0, max=1
+    """
+    if not words:
+        return {
+            "clusters": [],
+            "cluster_sizes": [],
+            "cluster_count": 0,
+            "switch_count": 0,
+            "mean_cluster_size": float("nan"),
+            "max_cluster_size": 0,
+        }
+
+    if len(words) == 1:
+        return {
+            "clusters": [list(words)],
+            "cluster_sizes": [1],
+            "cluster_count": 1,
+            "switch_count": 0,
+            "mean_cluster_size": 1.0,
+            "max_cluster_size": 1,
+        }
+
+    clusters: list[list[str]] = []
+    current: list[str] = [words[0]]
+    for prev, curr in zip(words[:-1], words[1:]):
+        if linked(prev, curr):
+            current.append(curr)
+        else:
+            clusters.append(current)
+            current = [curr]
+    clusters.append(current)
+
+    sizes = [len(c) for c in clusters]
+    return {
+        "clusters": clusters,
+        "cluster_sizes": sizes,
+        "cluster_count": len(clusters),
+        "switch_count": max(0, len(clusters) - 1),
+        "mean_cluster_size": float(sum(sizes) / len(sizes)),
+        "max_cluster_size": max(sizes),
+    }
+
+
+def score_fas(
+    f_words: list[str],
+    a_words: list[str],
+    s_words: list[str],
+    word_freq_provider=None,
+) -> dict:
+    """Compute per-letter and aggregated FAS clustering metrics.
+
+    Inputs are already filtered (proper nouns stripped, repetitions
+    removed) by the FAS pipeline. This function does NOT re-filter.
+
+    Args:
+        f_words: filtered word list for letter F.
+        a_words: filtered word list for letter A.
+        s_words: filtered word list for letter S.
+        word_freq_provider: optional ``WordFrequencyProvider``. When
+            supplied, the returned dict's ``mean_word_frequency`` field
+            is the mean Zipf frequency across the pooled F+A+S words;
+            NaN if no provider is given or the pooled list is empty.
+
+    Returns a flat dict with keys:
+
+        # Per-letter
+        cluster_count_f, mean_cluster_size_f, switch_count_f
+        cluster_count_a, mean_cluster_size_a, switch_count_a
+        cluster_count_s, mean_cluster_size_s, switch_count_s
+
+        # Aggregates (Linz feature inputs)
+        cluster_count_total      — sum of per-letter cluster counts
+        switch_count_total       — sum of per-letter switch counts
+        mean_cluster_size        — grand mean over pooled cluster sizes
+                                   (each cluster contributes once)
+
+        # Lexical
+        mean_word_frequency      — mean Zipf frequency over F+A+S pooled
+                                   words; NaN if no provider or empty.
+    """
+    f = cluster_letter(f_words)
+    a = cluster_letter(a_words)
+    s = cluster_letter(s_words)
+
+    pooled_sizes = f["cluster_sizes"] + a["cluster_sizes"] + s["cluster_sizes"]
+    if pooled_sizes:
+        mean_cluster_size = float(sum(pooled_sizes) / len(pooled_sizes))
+    else:
+        mean_cluster_size = float("nan")
+
+    pooled_words = list(f_words) + list(a_words) + list(s_words)
+    if word_freq_provider is None or not pooled_words:
+        mwf: float = float("nan")
+    else:
+        mwf = float(word_freq_provider.mean_word_frequency(pooled_words))
+        if mwf is None or (isinstance(mwf, float) and math.isnan(mwf)):
+            mwf = float("nan")
+
+    return {
+        # Per-letter cluster metrics
+        "cluster_count_f": f["cluster_count"],
+        "mean_cluster_size_f": f["mean_cluster_size"],
+        "switch_count_f": f["switch_count"],
+        "cluster_count_a": a["cluster_count"],
+        "mean_cluster_size_a": a["mean_cluster_size"],
+        "switch_count_a": a["switch_count"],
+        "cluster_count_s": s["cluster_count"],
+        "mean_cluster_size_s": s["mean_cluster_size"],
+        "switch_count_s": s["switch_count"],
+        # Aggregates
+        "cluster_count_total": f["cluster_count"] + a["cluster_count"] + s["cluster_count"],
+        "switch_count_total": f["switch_count"] + a["switch_count"] + s["switch_count"],
+        "mean_cluster_size": mean_cluster_size,
+        # Lexical
+        "mean_word_frequency": mwf,
     }
