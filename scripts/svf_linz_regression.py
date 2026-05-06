@@ -37,6 +37,24 @@ Why no lemmatisation in MWF: SVF responses are already lemma-like
 single nouns; adding a lemmatiser introduces a dependency and a new
 failure mode for marginal gain. Documented limitation.
 
+Word-frequency backend
+----------------------
+The Linz MWF feature is normally taken straight from the input CSV
+(precomputed by ``svf_pipeline.py`` from whichever backend was set in
+``configs/_default_configs.yaml``). Two extra options recompute MWF in
+this script for back-to-back comparison without changing the SVF
+pipeline state:
+
+- ``--frequency-source kelly``   Recompute MWF from Swedish Kelly
+  (``data/lexical/kelly.xml``) before running the regression. Requires
+  the original responses, so ``--svf-data`` must point to the SVF XLSX.
+- ``--frequency-source wordfreq``   Same idea, using the wordfreq
+  package — useful as the matched control for a Kelly comparison.
+- ``--compare-frequency-sources``   Convenience flag that runs the
+  whole pipeline twice (wordfreq, then kelly) under
+  ``<output-dir>/<source>/``, plus a top-level
+  ``linz_frequency_source_comparison.csv``.
+
 Outputs (default to data/processed/linz/ and figures/linz/):
 - linz_correlation_table.csv      Spearman r, p, n, passes_threshold
 - linz_regression_mae.csv         per-model MAE with bootstrap CI
@@ -48,6 +66,12 @@ Usage:
     python scripts/svf_linz_regression.py
     python scripts/svf_linz_regression.py --random-seed 42
     python scripts/svf_linz_regression.py --dry-run
+    python scripts/svf_linz_regression.py \\
+        --frequency-source kelly \\
+        --svf-data data/xlsx/sweSVF-syntheticData_v3.xlsx
+    python scripts/svf_linz_regression.py \\
+        --compare-frequency-sources \\
+        --svf-data data/xlsx/sweSVF-syntheticData_v3.xlsx
 """
 
 from __future__ import annotations
@@ -75,6 +99,12 @@ from sklearn.pipeline import Pipeline  # noqa: E402
 from sklearn.preprocessing import StandardScaler  # noqa: E402
 from sklearn.svm import SVR  # noqa: E402
 
+# Allow `from src.thesis_project...` and `from thesis_project...` imports
+# when this script is invoked directly from the repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 logger = logging.getLogger("svf_linz_regression")
 
 
@@ -99,6 +129,10 @@ CV_FOLDS = 5
 DEFAULT_INPUT = Path("data/processed/svf_results_with_mmse.csv")
 DEFAULT_OUTPUT_DIR = Path("data/processed/linz")
 DEFAULT_FIGURE_DIR = Path("figures/linz")
+DEFAULT_SVF_XLSX = Path("data/xlsx/sweSVF-syntheticData_v3.xlsx")
+DEFAULT_KELLY_PATH = Path("data/lexical/kelly.xml")
+
+FREQUENCY_SOURCES = ("csv", "wordfreq", "kelly")
 
 DIAGNOSIS_COLOURS = {
     "HC": "#2ca02c",
@@ -124,6 +158,41 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Print the planned analysis without running it.",
+    )
+    parser.add_argument(
+        "--frequency-source",
+        choices=FREQUENCY_SOURCES,
+        default="csv",
+        help=(
+            "Source for the MWF feature. 'csv' (default) uses the precomputed "
+            "mean_word_frequency column from the input CSV. 'wordfreq' / "
+            "'kelly' recompute MWF from the raw responses in --svf-data."
+        ),
+    )
+    parser.add_argument(
+        "--svf-data",
+        type=Path,
+        default=DEFAULT_SVF_XLSX,
+        help=(
+            "Raw SVF XLSX (with per-participant responses). Required when "
+            "--frequency-source is 'wordfreq' or 'kelly', or when "
+            "--compare-frequency-sources is set."
+        ),
+    )
+    parser.add_argument(
+        "--kelly-path",
+        type=Path,
+        default=DEFAULT_KELLY_PATH,
+        help="Override the Kelly LMF XML path (default: data/lexical/kelly.xml).",
+    )
+    parser.add_argument(
+        "--compare-frequency-sources",
+        action="store_true",
+        help=(
+            "Run the regression twice (wordfreq, kelly) under "
+            "<output-dir>/<source>/ and write a side-by-side comparison "
+            "CSV plus a comparison figure."
+        ),
     )
     return parser
 
@@ -165,6 +234,69 @@ def load_and_validate(path: Path) -> pd.DataFrame:
 
     logger.info("Loaded %d participants (after MMSE filtering).", len(df_clean))
     return df_clean
+
+
+def recompute_mwf(
+    df: pd.DataFrame,
+    svf_xlsx: Path,
+    source: str,
+    kelly_path: Path | None = None,
+) -> pd.DataFrame:
+    """Replace ``mean_word_frequency`` with values recomputed from raw responses.
+
+    Loads the SVF XLSX, joins per-participant responses to ``df`` by
+    ``participant_id``, and overwrites the MWF column. Participants
+    present in ``df`` but missing from the XLSX raise; participants in
+    the XLSX but absent from ``df`` are silently ignored.
+    """
+    if source not in ("wordfreq", "kelly"):
+        raise ValueError(f"recompute_mwf: unsupported source {source!r}")
+    if not svf_xlsx.is_file():
+        raise FileNotFoundError(
+            f"--svf-data XLSX not found at {svf_xlsx}; required for "
+            f"--frequency-source={source}."
+        )
+
+    from src.thesis_project.lexical.word_frequency import WordFrequencyProvider
+    from src.thesis_project.preprocessing.data_loader import load_svf_data
+
+    if source == "kelly":
+        provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_path)
+    else:
+        provider = WordFrequencyProvider(source="wordfreq")
+
+    participants = load_svf_data(svf_xlsx)
+    response_lookup = {p["participant_id"]: p["responses"] for p in participants}
+
+    new_mwf: list[float] = []
+    missing: list[str] = []
+    for pid in df["participant_id"]:
+        if pid not in response_lookup:
+            missing.append(str(pid))
+            new_mwf.append(float("nan"))
+            continue
+        # SVF responses tend to repeat; the SVF scorer averages over the
+        # de-duplicated unique-word list, so we mirror that here.
+        unique = list(dict.fromkeys(response_lookup[pid]))
+        new_mwf.append(provider.mean_word_frequency(unique))
+
+    if missing:
+        raise ValueError(
+            f"{len(missing)} participants in the input CSV are absent from "
+            f"{svf_xlsx}: {missing[:5]}{'…' if len(missing) > 5 else ''}"
+        )
+
+    out = df.copy()
+    out["mean_word_frequency"] = new_mwf
+    logger.info(
+        "Recomputed mean_word_frequency from %s for %d participants "
+        "(min=%.3f, mean=%.3f, max=%.3f).",
+        source, len(out),
+        float(np.nanmin(new_mwf)) if new_mwf else float("nan"),
+        float(np.nanmean(new_mwf)) if new_mwf else float("nan"),
+        float(np.nanmax(new_mwf)) if new_mwf else float("nan"),
+    )
+    return out
 
 
 def correlation_table(df: pd.DataFrame) -> pd.DataFrame:
@@ -422,22 +554,18 @@ def planned_summary() -> str:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
+def run_pipeline(
+    df: pd.DataFrame,
+    output_dir: Path,
+    figure_dir: Path,
+    seed: int,
+) -> tuple[int, pd.DataFrame | None, list[dict] | None]:
+    """Run correlation table → feature selection → CV regression → outputs.
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-
-    if args.dry_run:
-        print(planned_summary())
-        return 0
-
-    df = load_and_validate(args.input)
-
+    Returns (exit_code, corr_table, results). ``corr_table`` and
+    ``results`` are ``None`` when the pipeline aborts early so the
+    caller can still propagate a non-zero exit code.
+    """
     logger.info("Spearman correlations with MMSE (n=%d):", len(df))
     corr_table = correlation_table(df)
     surviving_cols = select_features(corr_table)
@@ -446,11 +574,8 @@ def main(argv: list[str] | None = None) -> int:
             "No features pass the |r|>%.1f threshold; cannot run the regression.",
             CORRELATION_THRESHOLD,
         )
-        return 2
+        return 2, corr_table, None
 
-    # Drop participants with NaN in any surviving feature. This catches
-    # edge cases like a single-unique-word response giving NaN
-    # pairwise_similarity_mean — sklearn estimators don't accept NaN.
     n_before = len(df)
     df = df.dropna(subset=surviving_cols).reset_index(drop=True)
     n_dropped_features = n_before - len(df)
@@ -465,15 +590,14 @@ def main(argv: list[str] | None = None) -> int:
             "feature; refusing to run on heavily-truncated data.",
             n_dropped_features, n_before,
         )
-        return 3
+        return 3, corr_table, None
     if len(df) < CV_FOLDS:
         logger.error(
             "Only %d participants remain after NaN filtering; need ≥ %d for "
             "%d-fold CV.", len(df), CV_FOLDS, CV_FOLDS,
         )
-        return 3
+        return 3, corr_table, None
 
-    seed = int(args.random_seed)
     np.random.seed(seed)
 
     results = []
@@ -497,8 +621,142 @@ def main(argv: list[str] | None = None) -> int:
         seed=seed,
     ))
 
-    write_outputs(corr_table, results, args.output_dir, args.figure_dir)
-    return 0
+    write_outputs(corr_table, results, output_dir, figure_dir)
+    return 0, corr_table, results
+
+
+def write_comparison(
+    per_source: dict[str, dict],
+    output_dir: Path,
+    figure_dir: Path,
+) -> None:
+    """Write side-by-side wordfreq vs. kelly summary CSVs and a figure.
+
+    ``per_source`` maps source name → {"corr_table": df, "results": list}.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    figure_dir.mkdir(parents=True, exist_ok=True)
+
+    mae_rows = []
+    mwf_corr_rows = []
+    for source, payload in per_source.items():
+        corr = payload["corr_table"]
+        mwf_row = corr[corr["column"] == "mean_word_frequency"]
+        if not mwf_row.empty:
+            r = mwf_row.iloc[0]
+            mwf_corr_rows.append({
+                "frequency_source": source,
+                "spearman_r": float(r["spearman_r"]),
+                "p_value": float(r["p_value"]),
+                "n": int(r["n"]),
+                "passes_threshold": bool(r["passes_threshold"]),
+            })
+        for res in payload["results"] or []:
+            mae_rows.append({
+                "frequency_source": source,
+                "model": res["label"],
+                "mae_mean": res["mae_mean"],
+                "mae_ci_low": res["mae_ci_low"],
+                "mae_ci_high": res["mae_ci_high"],
+                "kappa": res["kappa"],
+                "n_features": res["n_features"],
+                "features_used": ",".join(res["features_used"]),
+            })
+    mae_df = pd.DataFrame(mae_rows)
+    mwf_df = pd.DataFrame(mwf_corr_rows)
+
+    comp_path = output_dir / "linz_frequency_source_comparison.csv"
+    mae_df.to_csv(comp_path, index=False)
+    logger.info("Wrote frequency-source comparison → %s", comp_path)
+
+    mwf_corr_path = output_dir / "linz_mwf_correlation_by_source.csv"
+    mwf_df.to_csv(mwf_corr_path, index=False)
+    logger.info("Wrote MWF→MMSE correlation by source → %s", mwf_corr_path)
+
+    if mae_df.empty:
+        logger.warning(
+            "No regression results to plot in the frequency-source comparison."
+        )
+        return
+
+    sources = list(per_source.keys())
+    models = list(dict.fromkeys(mae_df["model"].tolist()))
+    fig, ax = plt.subplots(figsize=(max(5, 1.2 * len(sources) * len(models)), 5))
+    width = 0.35
+    x = np.arange(len(models))
+    for i, source in enumerate(sources):
+        sub = mae_df[mae_df["frequency_source"] == source].set_index("model")
+        means = [sub.loc[m, "mae_mean"] if m in sub.index else np.nan for m in models]
+        lows = [
+            sub.loc[m, "mae_mean"] - sub.loc[m, "mae_ci_low"] if m in sub.index else 0
+            for m in models
+        ]
+        highs = [
+            sub.loc[m, "mae_ci_high"] - sub.loc[m, "mae_mean"] if m in sub.index else 0
+            for m in models
+        ]
+        offsets = (i - (len(sources) - 1) / 2) * width
+        ax.bar(
+            x + offsets, means, width=width, label=source,
+            yerr=[lows, highs], capsize=4,
+        )
+    ax.set_xticks(x)
+    ax.set_xticklabels(models)
+    ax.set_ylabel("MAE (lower = better)")
+    ax.set_title("SVF → MMSE: regression MAE by frequency source")
+    ax.legend(title="Frequency source", loc="best")
+    ax.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig_path = figure_dir / "linz_frequency_source_comparison.png"
+    fig.savefig(fig_path, dpi=300)
+    plt.close(fig)
+    logger.info("Wrote comparison figure → %s", fig_path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+
+    if args.dry_run:
+        print(planned_summary())
+        return 0
+
+    seed = int(args.random_seed)
+    base_df = load_and_validate(args.input)
+
+    if args.compare_frequency_sources:
+        sources_to_run = ("wordfreq", "kelly")
+        per_source: dict[str, dict] = {}
+        worst_code = 0
+        for source in sources_to_run:
+            logger.info("─" * 60)
+            logger.info("Comparison run: frequency_source = %s", source)
+            logger.info("─" * 60)
+            df_src = recompute_mwf(
+                base_df, args.svf_data, source, kelly_path=args.kelly_path,
+            )
+            sub_out = args.output_dir / source
+            sub_fig = args.figure_dir / source
+            code, corr, results = run_pipeline(df_src, sub_out, sub_fig, seed)
+            per_source[source] = {"corr_table": corr, "results": results}
+            worst_code = max(worst_code, code)
+        write_comparison(per_source, args.output_dir, args.figure_dir)
+        return worst_code
+
+    if args.frequency_source != "csv":
+        base_df = recompute_mwf(
+            base_df, args.svf_data, args.frequency_source,
+            kelly_path=args.kelly_path,
+        )
+
+    code, _, _ = run_pipeline(base_df, args.output_dir, args.figure_dir, seed)
+    return code
 
 
 if __name__ == "__main__":
