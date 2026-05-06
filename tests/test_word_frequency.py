@@ -82,3 +82,132 @@ def test_sucx_backend_rejects_csv_missing_columns(tmp_path):
 def test_unknown_source_rejected():
     with pytest.raises(ValueError, match="Unknown frequency source"):
         WordFrequencyProvider(source="other")  # type: ignore[arg-type]
+
+
+# ──────────────────────────────────────────────────────
+# Kelly backend
+# ──────────────────────────────────────────────────────
+
+KELLY_FIXTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<LexicalResource>
+  <Lexicon>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="hund"/>
+          <feat att="kellyPartOfSpeech" val="noun-en"/>
+          <feat att="rawFreq" val="1234"/>
+          <feat att="wpm" val="500,00"/>
+          <feat att="cefr" val="1"/>
+          <feat att="source" val="corpus"/>
+        </FormRepresentation>
+      </Lemma>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="katt"/>
+          <feat att="kellyPartOfSpeech" val="noun-en"/>
+          <feat att="rawFreq" val="800"/>
+          <feat att="wpm" val="300,00"/>
+          <feat att="cefr" val="1"/>
+          <feat att="source" val="corpus"/>
+        </FormRepresentation>
+      </Lemma>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="myrslok"/>
+          <feat att="kellyPartOfSpeech" val="noun-en"/>
+          <feat att="rawFreq" val=""/>
+          <feat att="wpm" val="1000000,00"/>
+          <feat att="cefr" val="6"/>
+          <feat att="source" val="manual"/>
+        </FormRepresentation>
+      </Lemma>
+    </LexicalEntry>
+    <LexicalEntry>
+      <Lemma>
+        <FormRepresentation>
+          <feat att="writtenForm" val="vara (vardagl. va)"/>
+          <feat att="kellyPartOfSpeech" val="verb"/>
+          <feat att="rawFreq" val="9999"/>
+          <feat att="wpm" val="9000,00"/>
+          <feat att="cefr" val="1"/>
+          <feat att="source" val="corpus"/>
+        </FormRepresentation>
+      </Lemma>
+    </LexicalEntry>
+  </Lexicon>
+</LexicalResource>
+"""
+
+
+@pytest.fixture
+def kelly_fixture(tmp_path):
+    path = tmp_path / "kelly_fixture.xml"
+    path.write_text(KELLY_FIXTURE_XML, encoding="utf-8")
+    return path
+
+
+def test_kelly_backend_returns_zipf_for_known_lemma(kelly_fixture):
+    """500 WPM → log10(500)+3 ≈ 5.70 Zipf."""
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    z = provider.zipf_frequency("hund")
+    assert 5.6 < z < 5.8
+
+
+def test_kelly_backend_unknown_word_returns_zero(kelly_fixture):
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    assert provider.zipf_frequency("xkqzj") == 0.0
+
+
+def test_kelly_backend_skips_manual_placeholder(kelly_fixture):
+    """Manual placeholder entries (empty rawFreq) must not inflate Zipf to 6.
+
+    Without the placeholder filter, 'myrslok' would resolve to wpm=1e6
+    → Zipf=9, which is nonsensical for a rare animal noun.
+    """
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    assert provider.zipf_frequency("myrslok") == 0.0
+
+
+def test_kelly_backend_strips_parenthetical_variants(kelly_fixture):
+    """'vara (vardagl. va)' should be indexed as 'vara'."""
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    assert provider.zipf_frequency("vara") > 6.0
+
+
+def test_kelly_backend_lenient_strips_definite_suffix(kelly_fixture):
+    """'hunden' (definite-en form) should fall back to 'hund' under lenient lookup."""
+    provider = WordFrequencyProvider(
+        source="kelly", kelly_path=kelly_fixture, kelly_lenient=True,
+    )
+    assert provider.zipf_frequency("hunden") == provider.zipf_frequency("hund")
+
+
+def test_kelly_backend_strict_does_not_strip_suffix(kelly_fixture):
+    """With kelly_lenient=False, 'hunden' is unknown."""
+    provider = WordFrequencyProvider(
+        source="kelly", kelly_path=kelly_fixture, kelly_lenient=False,
+    )
+    assert provider.zipf_frequency("hunden") == 0.0
+    assert provider.zipf_frequency("hund") > 0.0
+
+
+def test_kelly_backend_mwf_finite(kelly_fixture):
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    mwf = provider.mean_word_frequency(["hund", "katt"])
+    assert math.isfinite(mwf)
+    assert mwf > 4.5
+
+
+def test_kelly_backend_lowercases_inputs(kelly_fixture):
+    provider = WordFrequencyProvider(source="kelly", kelly_path=kelly_fixture)
+    assert provider.zipf_frequency("HUND") == provider.zipf_frequency("hund")
+
+
+def test_kelly_backend_raises_on_missing_file():
+    with pytest.raises(FileNotFoundError, match="Kelly XML"):
+        WordFrequencyProvider(source="kelly", kelly_path=Path("/nonexistent.xml"))
