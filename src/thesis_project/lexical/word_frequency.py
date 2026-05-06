@@ -124,21 +124,24 @@ class WordFrequencyProvider:
         return s.lower() if s else None
 
     @staticmethod
-    def _load_kelly_table(path: Path) -> dict[str, float]:
-        """Load Kelly LMF XML into ``{lemma: zipf_frequency}``.
+    def _load_kelly_table(path: Path) -> dict[str, dict]:
+        """Load Kelly LMF XML into ``{lemma: {"zipf": float, "cefr": str|None}}``.
 
         Schema: LexicalEntry / Lemma / FormRepresentation / feat[@att,@val]
         with att ∈ {writtenForm, partOfSpeech, kellyPartOfSpeech, wpm,
         cefr, source, ...}. WPM uses Swedish decimal comma; convert to
-        Zipf via ``log10(wpm) + 3``. "Manual" placeholder entries (empty
-        rawFreq, wpm=1000000) carry no corpus-derived frequency and are
-        skipped to avoid inflating Zipf scores. Within duplicates, prefer
-        noun POS (animal vocabulary skews noun-heavy) and the higher-WPM
-        entry within a POS class.
+        Zipf via ``log10(wpm) + 3``. CEFR is numeric 1–6 in the XML and is
+        normalised to the ``A1``–``C2`` strings. "Manual" placeholder
+        entries (empty rawFreq, wpm=1000000) carry no corpus-derived
+        frequency and are skipped to avoid inflating Zipf scores. Within
+        duplicates, prefer noun POS (animal vocabulary skews noun-heavy)
+        and the higher-WPM entry within a POS class.
         """
         import xml.etree.ElementTree as ET
 
-        table: dict[str, tuple[float, bool]] = {}
+        cefr_map = {"1": "A1", "2": "A2", "3": "B1", "4": "B2", "5": "C1", "6": "C2"}
+
+        table: dict[str, dict] = {}
         n_entries = 0
         n_skipped_manual = 0
         n_skipped_other = 0
@@ -186,25 +189,29 @@ class WordFrequencyProvider:
             is_noun = kelly_pos.startswith("noun")
             zipf = math.log10(wpm) + 3.0
 
+            cefr_raw = (feats.get("cefr") or "").strip()
+            cefr = cefr_map.get(cefr_raw, cefr_raw if cefr_raw else None)
+
+            entry = {"zipf": zipf, "cefr": cefr, "is_noun": is_noun}
+
             if lemma in table:
                 duplicates += 1
-                existing_zipf, existing_is_noun = table[lemma]
-                if is_noun and not existing_is_noun:
-                    table[lemma] = (zipf, is_noun)
-                elif is_noun == existing_is_noun and zipf > existing_zipf:
-                    table[lemma] = (zipf, is_noun)
+                existing = table[lemma]
+                if is_noun and not existing["is_noun"]:
+                    table[lemma] = entry
+                elif is_noun == existing["is_noun"] and zipf > existing["zipf"]:
+                    table[lemma] = entry
             else:
-                table[lemma] = (zipf, is_noun)
+                table[lemma] = entry
 
             elem.clear()
 
-        flat = {lemma: zipf for lemma, (zipf, _) in table.items()}
         logger.info(
             "Kelly XML: %d entries → %d unique lemmas "
             "(%d duplicates resolved, %d manual placeholders skipped, %d other skips)",
-            n_entries, len(flat), duplicates, n_skipped_manual, n_skipped_other,
+            n_entries, len(table), duplicates, n_skipped_manual, n_skipped_other,
         )
-        return flat
+        return table
 
     @staticmethod
     def _lenient_candidates(word: str) -> list[str]:
@@ -260,19 +267,50 @@ class WordFrequencyProvider:
             return float(zipf_frequency(token, "sv"))
 
         if self.source == "kelly":
-            assert self._kelly_table is not None
-            hit = self._kelly_table.get(token)
-            if hit is not None:
-                return float(hit)
-            if self._kelly_lenient:
-                for cand in self._lenient_candidates(token)[1:]:
-                    hit = self._kelly_table.get(cand)
-                    if hit is not None:
-                        return float(hit)
+            entry = self._kelly_lookup(token)
+            if entry is not None:
+                return float(entry["zipf"])
             return 0.0
 
         assert self._sucx_table is not None
         return float(self._sucx_table.get(token, 0.0))
+
+    def _kelly_lookup(self, token: str) -> dict | None:
+        """Return the Kelly entry for ``token`` (lowercased) or None.
+
+        Tries the surface form first, then — if ``kelly_lenient`` was
+        set at construction — the suffix-stripped Swedish definite-form
+        candidates (``-en``, ``-et``, ``-n``, ``-t``). Returns None when
+        nothing matches; callers map that to 0.0 / None as appropriate.
+        """
+        if self.source != "kelly":
+            return None
+        assert self._kelly_table is not None
+        hit = self._kelly_table.get(token)
+        if hit is not None:
+            return hit
+        if self._kelly_lenient:
+            for cand in self._lenient_candidates(token)[1:]:
+                hit = self._kelly_table.get(cand)
+                if hit is not None:
+                    return hit
+        return None
+
+    def cefr_level(self, word: str) -> str | None:
+        """Return the Kelly CEFR level (``A1``..``C2``) of ``word``.
+
+        Returns None for words not in Kelly, or when the backend is not
+        ``'kelly'`` (CEFR is a Kelly-specific tag). Lookup is
+        case-insensitive and uses the same lenient suffix-strip
+        fallback as ``zipf_frequency``.
+        """
+        if word is None or self.source != "kelly":
+            return None
+        token = str(word).strip().lower()
+        if not token:
+            return None
+        entry = self._kelly_lookup(token)
+        return entry["cefr"] if entry is not None else None
 
     def mean_word_frequency(self, words: list[str]) -> float:
         """Mean Zipf frequency over ``words``.

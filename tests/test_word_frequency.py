@@ -211,3 +211,105 @@ def test_kelly_backend_lowercases_inputs(kelly_fixture):
 def test_kelly_backend_raises_on_missing_file():
     with pytest.raises(FileNotFoundError, match="Kelly XML"):
         WordFrequencyProvider(source="kelly", kelly_path=Path("/nonexistent.xml"))
+
+
+# ──────────────────────────────────────────────────────
+# Kelly cefr_level()
+# ──────────────────────────────────────────────────────
+
+KELLY_CEFR_FIXTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<LexicalResource>
+  <Lexicon>
+    <LexicalEntry><Lemma><FormRepresentation>
+      <feat att="writtenForm" val="hund"/>
+      <feat att="kellyPartOfSpeech" val="noun-en"/>
+      <feat att="rawFreq" val="500"/><feat att="wpm" val="500,00"/>
+      <feat att="cefr" val="1"/><feat att="source" val="corpus"/>
+    </FormRepresentation></Lemma></LexicalEntry>
+    <LexicalEntry><Lemma><FormRepresentation>
+      <feat att="writtenForm" val="ödla"/>
+      <feat att="kellyPartOfSpeech" val="noun-en"/>
+      <feat att="rawFreq" val="50"/><feat att="wpm" val="50,00"/>
+      <feat att="cefr" val="3"/><feat att="source" val="corpus"/>
+    </FormRepresentation></Lemma></LexicalEntry>
+    <LexicalEntry><Lemma><FormRepresentation>
+      <feat att="writtenForm" val="vesslas"/>
+      <feat att="kellyPartOfSpeech" val="noun-en"/>
+      <feat att="rawFreq" val="5"/><feat att="wpm" val="5,00"/>
+      <feat att="cefr" val="6"/><feat att="source" val="corpus"/>
+    </FormRepresentation></Lemma></LexicalEntry>
+    <LexicalEntry><Lemma><FormRepresentation>
+      <feat att="writtenForm" val="okänd"/>
+      <feat att="kellyPartOfSpeech" val="noun-en"/>
+      <feat att="rawFreq" val="10"/><feat att="wpm" val="10,00"/>
+      <feat att="source" val="corpus"/>
+    </FormRepresentation></Lemma></LexicalEntry>
+  </Lexicon>
+</LexicalResource>
+"""
+
+
+@pytest.fixture
+def kelly_cefr_fixture(tmp_path):
+    path = tmp_path / "kelly_cefr_fixture.xml"
+    path.write_text(KELLY_CEFR_FIXTURE_XML, encoding="utf-8")
+    return path
+
+
+def test_cefr_level_returns_a1_for_basic_lemma(kelly_cefr_fixture):
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("hund") == "A1"
+
+
+def test_cefr_level_maps_numeric_to_named_levels(kelly_cefr_fixture):
+    """Kelly XML stores cefr as 1..6; provider should expose A1..C2."""
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("ödla") == "B1"
+    assert p.cefr_level("vesslas") == "C2"
+
+
+def test_cefr_level_returns_none_for_unknown_word(kelly_cefr_fixture):
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("xkqzj") is None
+
+
+def test_cefr_level_returns_none_when_entry_lacks_cefr(kelly_cefr_fixture):
+    """Entries without a cefr feat should return None, not crash."""
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("okänd") is None
+    # But Zipf still works for that entry.
+    assert p.zipf_frequency("okänd") > 0
+
+
+def test_cefr_level_lenient_strips_definite_suffix(kelly_cefr_fixture):
+    """'hunden' (definite -en form) should fall through to 'hund'."""
+    p = WordFrequencyProvider(
+        source="kelly", kelly_path=kelly_cefr_fixture, kelly_lenient=True,
+    )
+    assert p.cefr_level("hunden") == "A1"
+
+
+def test_cefr_level_strict_does_not_strip_suffix(kelly_cefr_fixture):
+    p = WordFrequencyProvider(
+        source="kelly", kelly_path=kelly_cefr_fixture, kelly_lenient=False,
+    )
+    assert p.cefr_level("hunden") is None
+    assert p.cefr_level("hund") == "A1"
+
+
+def test_cefr_level_lowercases_input(kelly_cefr_fixture):
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("HUND") == "A1"
+
+
+def test_cefr_level_returns_none_for_wordfreq_backend():
+    """CEFR is a Kelly-specific tag; other backends return None."""
+    p = WordFrequencyProvider(source="wordfreq")
+    assert p.cefr_level("hund") is None
+
+
+def test_cefr_level_returns_none_for_empty_or_none_input(kelly_cefr_fixture):
+    p = WordFrequencyProvider(source="kelly", kelly_path=kelly_cefr_fixture)
+    assert p.cefr_level("") is None
+    assert p.cefr_level("   ") is None
+    assert p.cefr_level(None) is None  # type: ignore[arg-type]
