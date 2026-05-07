@@ -57,3 +57,8 @@ modelcomp-*.txt
 # so the intent is clear.
 data/processed/sq3/sq3_sampled_pairs.csv
 data/processed/sq3/sq3_ratings_*.csv
+
+# Test fixtures must be tracked despite the broad *.csv ignore.
+!tests/fixtures/
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.xml
