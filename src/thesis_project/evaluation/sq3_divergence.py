@@ -131,8 +131,12 @@ def compute_divergence_catalog(
     cosine = base["cosine_sim"].astype(float)
     disagreement = (rating_unit - cosine).abs()
 
-    threshold = float(np.percentile(disagreement, threshold_percentile))
-    is_div = disagreement > threshold
+    if len(disagreement) == 0:
+        threshold = float("nan")
+        is_div = pd.Series([], dtype=bool)
+    else:
+        threshold = float(np.percentile(disagreement, threshold_percentile))
+        is_div = disagreement > threshold
 
     saldo_summary = [
         _saldo_relation_summary(saldo_graph, str(t), str(r))
