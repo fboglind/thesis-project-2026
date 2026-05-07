@@ -12,7 +12,6 @@ from sklearn.metrics import cohen_kappa_score
 
 from thesis_project.evaluation.sq3_reliability import (
     VALID_CATEGORIES,
-    ReliabilityReport,
     compute_reliability,
 )
 

@@ -259,11 +259,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Step 2: validate.
     sampled = pd.read_csv(args.sampled_pairs)
-    expected_pairs = set(sampled["pair_id"])
     _validate_ratings_dir(rating_files, expected_pairs=set())
-    # We do not enforce expected_pairs equality here (test fixture has fewer
-    # pairs than a full sample); the per-file check above guarantees the
-    # rated set is internally consistent.
 
     # Step 3: reliability.
     branch_key = "multi" if args.branch == "multi" else "sole_test_retest"
