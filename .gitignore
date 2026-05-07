@@ -54,3 +54,14 @@ dir_1/
 model_comparison*.txt
 pipe-*.txt
 modelcomp-*.txt
+
+# SQ3 in-progress rating artifacts (confidential while raters are working).
+# These are also caught by the data/processed/ rule above; named explicitly
+# so the intent is clear.
+data/processed/sq3/sq3_sampled_pairs.csv
+data/processed/sq3/sq3_ratings_*.csv
+
+# Test fixtures must be tracked despite the broad *.csv ignore.
+!tests/fixtures/
+!tests/fixtures/**/*.csv
+!tests/fixtures/**/*.xml
