@@ -6,7 +6,10 @@ count metrics, and aggregate scores.
 
 import math
 
-from thesis_project.scoring.fas_scorer import _levenshtein, score_fas
+from thesis_project.scoring.fas_scorer import (
+    _levenshtein,
+    score_fas_counts as score_fas,
+)
 
 
 # ──────────────────────────────────────────────────────

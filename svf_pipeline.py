@@ -5,14 +5,15 @@ Scores participant responses for the SVF animal-fluency test using
 cosine similarity metrics following Pakhomov et al. (2016) / Troyer et al. (1997).
 
 Usage:
-    python svf_pipeline.py --data data/xlsx/SVF-syntheticData_v1.xlsx
+    python svf_pipeline.py --data data/xlsx/sweSVF-syntheticData_v3.xlsx
     python svf_pipeline.py --mock                   # mock embeddings (no GPU needed)
     python svf_pipeline.py --model sbert-swedish    # use Swedish SBERT
-    python svf_pipeline.py --threshold 0.70         # cluster threshold for chain method
+    python svf_pipeline.py --threshold 0.045         # cluster threshold for chain method
     python svf_pipeline.py                          # defaults (kb-bert, path from config)
 """
 
 import argparse
+import logging
 import warnings
 from pathlib import Path
 
@@ -20,6 +21,8 @@ import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 MODEL_CHOICES = ["kb-bert", "sbert-swedish", "e5-large", "e5-large-instruct"]
 
@@ -56,7 +59,7 @@ def main():
     parser.add_argument(
         "--model",
         choices=MODEL_CHOICES,
-        default="kb-bert",
+        default="sbert-swedish",
         help="Embedding model preset (ignored if --mock). Default: kb-bert",
     )
     parser.add_argument(
@@ -67,22 +70,44 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="data/processed/svf_scored_results.csv",
+        default="data/processed/svf_results_with_mmse.csv",
         help="Output CSV path",
     )
     parser.add_argument(
         "--threshold",
         type=float,
         default=0.45,
-        help="Cosine similarity threshold for cluster detection. Default: 0.45",
+        help="Cosine similarity threshold for cluster detection. Default: 0.45 "
+             "(Phase 3 calibrated value).",
     )
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    logger.info(
+        "Per-test metadata only; cross-file joins are not valid on v3 data. "
+        "See data/processed/harmonization_check_v3.csv."
+    )
+
+    import yaml
+
     from src.thesis_project.embeddings.encoder import MockEmbedder
+    from src.thesis_project.lexical.word_frequency import WordFrequencyProvider
     from src.thesis_project.preprocessing.data_loader import SVF_PATH, load_svf_data
     from src.thesis_project.scoring.svf_scorer import score_svf
 
     data_path = args.data if args.data else SVF_PATH
+
+    config_path = Path(__file__).resolve().parent / "configs" / "_default_configs.yaml"
+    with open(config_path, "r") as cfg_f:
+        cfg = yaml.safe_load(cfg_f)
+    svf_cfg = cfg.get("svf", {}) or {}
+    frequency_source = svf_cfg.get("frequency_source", "wordfreq")
+    if args.threshold == parser.get_default("threshold"):
+        cfg_threshold = svf_cfg.get("cluster_threshold")
+        if cfg_threshold is not None:
+            args.threshold = float(cfg_threshold)
+
+    frequency_provider = WordFrequencyProvider(source=frequency_source)
 
     # ── 1. Load ──────────────────────────────────────────
     print(f"Loading SVF data from {data_path}...")
@@ -92,6 +117,15 @@ def main():
     diagnoses = [p["diagnosis"] for p in participants]
     diag_counts = pd.Series(diagnoses).value_counts().to_dict()
     print(f"  Diagnoses: {diag_counts}")
+
+    mmse_values = [p["mmse"] for p in participants]
+    n_mmse_present = sum(1 for v in mmse_values if v is not None and not pd.isna(v))
+    print(f"  MMSE: {n_mmse_present}/{len(participants)} present")
+    if n_mmse_present == 0:
+        logger.info(
+            "No MMSE values present in SVF data; mmse column will be all NaN. "
+            "This is expected for legacy v1/v2 inputs."
+        )
 
     total_responses = sum(len(p["responses"]) for p in participants)
     print(f"  Total responses to embed: {total_responses}")
@@ -112,7 +146,10 @@ def main():
     records = []
     for p in participants:
         metrics = score_svf(
-            responses=p["responses"], encoder=encoder, threshold=args.threshold
+            responses=p["responses"],
+            encoder=encoder,
+            threshold=args.threshold,
+            frequency_provider=frequency_provider,
         )
         records.append(
             {
@@ -120,6 +157,7 @@ def main():
                 "diagnosis": p["diagnosis"],
                 "age": p["age"],
                 "gender": p["gender"],
+                "mmse": p["mmse"],
                 "total_words": metrics["total_words"],
                 "unique_words": metrics["unique_words"],
                 "repetitions": metrics["repetitions"],
@@ -128,9 +166,10 @@ def main():
                 "temporal_gradient": metrics["temporal_gradient"],
                 "similarity_slope": metrics["similarity_slope"],
                 "cluster_count": metrics["cluster_count"],
-                "switch_count": metrics["switch_count"],
                 "mean_cluster_size": metrics["mean_cluster_size"],
+                "switch_count": metrics["switch_count"],
                 "max_cluster_size": metrics["max_cluster_size"],
+                "mean_word_frequency": metrics["mean_word_frequency"],
             }
         )
 

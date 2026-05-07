@@ -23,6 +23,7 @@ dependencies = [
     "scikit-learn",
     "networkx",
     "lxml",
+    "wordfreq>=3.0",
 ]
 
 [project.optional-dependencies]
