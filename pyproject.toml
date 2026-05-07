@@ -21,6 +21,8 @@ dependencies = [
     "scipy",
     "pyyaml",
     "scikit-learn",
+    "networkx",
+    "lxml",
     "wordfreq>=3.0",
 ]
 
