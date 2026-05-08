@@ -49,18 +49,42 @@ SENSITIVE_COLUMNS = (
 )
 
 
-def load_eligible_pairs(bnt_results_path: Path) -> pd.DataFrame:
-    """Load the BNT scored-results CSV and return only eligible pairs.
+DEDUP_KEYS = ("gold", "normalized")
 
-    Eligibility:
-        ``is_non_response == False`` AND ``is_exact_match == False``.
 
-    The returned DataFrame is a copy, indexed ``0..n-1``, with all
-    original columns preserved.
+def load_eligible_pairs(
+    bnt_results_path: Path,
+    *,
+    return_counts: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, dict[str, int]]:
+    """Load the BNT scored-results CSV and return eligible (target, response) pairs.
+
+    Two-stage filter (methodology §3):
+
+    1. **Eligibility filter.** Drop rows where ``is_non_response == True``
+       OR ``is_exact_match == True``.
+    2. **Pair-level deduplication.** Stable-sort the remaining rows by
+       ``(gold, normalized, participant_id_or_user)`` and drop duplicates
+       on ``(gold, normalized)``, keeping the first. The eligibility unit
+       is therefore the unique ``(target, response)`` pair, not the
+       participant-response row.
+
+    The composite sort key with the participant column included makes the
+    dedup output invariant under arbitrary permutations of the input row
+    order, so re-running on a regenerated upstream CSV produces the same
+    pair set as long as the underlying data is the same.
+
+    Returns
+    -------
+    DataFrame
+        The deduplicated eligible pair set, reindexed ``0..n-1``.
+    dict
+        (Only when ``return_counts=True``) Pre/post-filter and
+        pre/post-dedup row counts for the eligibility probe summary.
     """
     bnt_results_path = Path(bnt_results_path)
     df = pd.read_csv(bnt_results_path)
-    required = {"is_non_response", "is_exact_match"}
+    required = {"is_non_response", "is_exact_match", *DEDUP_KEYS}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(
@@ -68,7 +92,27 @@ def load_eligible_pairs(bnt_results_path: Path) -> pd.DataFrame:
             f"{sorted(missing)}"
         )
     eligible = df[(~df["is_non_response"]) & (~df["is_exact_match"])].copy()
-    eligible.reset_index(drop=True, inplace=True)
+    n_after_filter = len(eligible)
+
+    sort_keys = list(DEDUP_KEYS)
+    if "participant_id" in eligible.columns:
+        sort_keys.append("participant_id")
+    elif "user" in eligible.columns:
+        sort_keys.append("user")
+    eligible = eligible.sort_values(by=sort_keys, kind="stable")
+    eligible = eligible.drop_duplicates(subset=list(DEDUP_KEYS), keep="first")
+    eligible = eligible.reset_index(drop=True)
+
+    if return_counts:
+        counts = {
+            "n_total": int(len(df)),
+            "n_after_filter": int(n_after_filter),
+            "n_after_dedup": int(len(eligible)),
+            "n_duplicates_dropped": int(n_after_filter - len(eligible)),
+            "n_non_response": int(df["is_non_response"].sum()),
+            "n_exact_match": int(df["is_exact_match"].sum()),
+        }
+        return eligible, counts
     return eligible
 
 

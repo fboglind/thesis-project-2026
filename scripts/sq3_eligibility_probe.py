@@ -42,14 +42,10 @@ def _df_to_markdown(df: pd.DataFrame) -> str:
 def _build_summary(
     input_path: Path,
     df_full: pd.DataFrame,
-    eligible: pd.DataFrame,
+    counts: dict[str, int],
     cutpoints: tuple[float, float, float],
     contingency: pd.DataFrame,
 ) -> str:
-    n_total = len(df_full)
-    n_eligible = len(eligible)
-    n_non_response = int(df_full["is_non_response"].sum())
-    n_exact_match = int(df_full["is_exact_match"].sum())
     n_both = int((df_full["is_non_response"] & df_full["is_exact_match"]).sum())
     q25, q50, q75 = cutpoints
 
@@ -60,11 +56,21 @@ def _build_summary(
     lines.append("")
     lines.append("## Row counts")
     lines.append("")
-    lines.append(f"- Total rows: {n_total}")
-    lines.append(f"- Eligible rows (post-filter): {n_eligible}")
-    lines.append(f"- Excluded (is_non_response): {n_non_response}")
-    lines.append(f"- Excluded (is_exact_match): {n_exact_match}")
+    lines.append(f"- Total rows: {counts['n_total']}")
+    lines.append(f"- Excluded (is_non_response): {counts['n_non_response']}")
+    lines.append(f"- Excluded (is_exact_match): {counts['n_exact_match']}")
     lines.append(f"- Excluded (both flags True): {n_both}")
+    lines.append(
+        f"- Eligible rows (row-level, pre-dedup): {counts['n_after_filter']}"
+    )
+    lines.append(
+        f"- Duplicates dropped at (gold, normalized): "
+        f"{counts['n_duplicates_dropped']}"
+    )
+    lines.append(
+        f"- Eligible pairs (post-dedup, used for stratification): "
+        f"{counts['n_after_dedup']}"
+    )
     lines.append("")
     lines.append("## Cosine quartile cutpoints (eligibility-filtered)")
     lines.append("")
@@ -98,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     df_full = pd.read_csv(args.input)
-    eligible = load_eligible_pairs(args.input)
+    eligible, counts = load_eligible_pairs(args.input, return_counts=True)
     eligible = assign_quartile(eligible)
     cutpoints = compute_quartile_cutpoints(eligible)
 
@@ -120,15 +126,19 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    summary = _build_summary(args.input, df_full, eligible, cutpoints, contingency)
+    summary = _build_summary(args.input, df_full, counts, cutpoints, contingency)
     out_path = args.output_dir / "sq3_eligibility_probe.md"
     out_path.write_text(summary, encoding="utf-8")
 
-    print(f"Total rows: {len(df_full)}")
-    print(f"Eligible rows: {len(eligible)}")
+    print(f"Total rows: {counts['n_total']}")
     print(
-        f"Excluded — non-response: {int(df_full['is_non_response'].sum())}, "
-        f"exact-match: {int(df_full['is_exact_match'].sum())}"
+        f"Excluded — non-response: {counts['n_non_response']}, "
+        f"exact-match: {counts['n_exact_match']}"
+    )
+    print(
+        f"Eligible rows (pre-dedup): {counts['n_after_filter']}; "
+        f"duplicates dropped: {counts['n_duplicates_dropped']}; "
+        f"eligible pairs (post-dedup): {counts['n_after_dedup']}"
     )
     q25, q50, q75 = cutpoints
     print(f"Quartile cutpoints: Q25={q25:.6f}, Q50={q50:.6f}, Q75={q75:.6f}")

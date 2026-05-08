@@ -64,11 +64,12 @@ stratification. Rater-model agreement is reported against all five models
 described in §3.3 (KB-BERT [CLS], Swedish SBERT, mE5-large, plus the two
 Qwen-family models in scope at the time of SQ3 execution).
 
-**Eligibility.** Pairs are included if `is_non_response == False` AND
-`is_exact_match == False`. Non-responses (silence, "don't know", etc.) carry
-no semantic content to rate; exact matches receive a definitional score of 1
-and require no human judgment. The eligible-pair count is reported as a
-diagnostic in the executed-protocol log.
+**Eligibility.** A two-stage filter, applied in fixed order: (1) drop rows
+where `is_non_response == True` OR `is_exact_match == True`; (2) deduplicate
+the remaining set at the `(gold, normalized)` level via stable sort and
+keep-first, so the eligibility unit is the unique `(target, response)` pair
+rather than the participant-response row. Both counts (row-level pre-dedup
+and pair-level post-dedup) are reported in `sq3_eligibility_probe.md`.
 
 **Excluded fields.** Rater-facing data does not include `participant_id`,
 `gender`, `age`, `diagnosis`, `mmse`, or `cosine_sim`. The rater sees only the
@@ -468,7 +469,8 @@ The Limitations section will explicitly note:
 
 > Any deviation from this protocol made after rating commences must be
 > recorded here, with date and reason. Empty at time of pre-registration.
-
+"2026-05-XX: Identified upstream normalization bug stripping va from gradskiva. Bug fixed in BNT preprocessor (issue #N); BNT scored-results regenerated. Affects ≤48 pairs in the original eligible pool."
+"2026-05-XX: Added pair-level deduplication to sq3_sampling.py between eligibility filtering and quartile assignment. Eligibility unit changed from row to unique (target, normalized_response) pair. Reproducibility preserved via stable sort + keep-first semantics."
 ---
 
 *Pre-registration date: 2026-05-07.*

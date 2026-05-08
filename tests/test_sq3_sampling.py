@@ -131,6 +131,77 @@ def test_rater_seed_changes_row_order_but_not_pair_set(tmp_path):
     assert a["pair_id"].tolist() != b["pair_id"].tolist()
 
 
+def test_dedup_at_gold_normalized_is_deterministic(tmp_path):
+    """Same input → same dedup output, regardless of input row order.
+
+    Constructs a small CSV with deliberate duplicates at the
+    ``(gold, normalized)`` level across multiple participants, then
+    asserts the dedup is deterministic and order-invariant.
+    """
+    base = pd.DataFrame(
+        {
+            "participant_id": [
+                "User-2", "User-1", "User-3",  # all share (träd, träd)
+                "User-1", "User-2",            # share (bil, fordon)
+                "User-1",                      # unique (hund, vovve)
+                "User-2",                      # unique (katt, kissemissen)
+            ],
+            "diagnosis": ["HC", "MCI", "AD", "HC", "MCI", "HC", "MCI"],
+            "gold":       ["träd", "träd", "träd", "bil", "bil", "hund", "katt"],
+            "normalized": ["träd", "träd", "träd", "fordon", "fordon", "vovve", "kissemissen"],
+            "is_exact_match":  [False] * 7,
+            "is_non_response": [False] * 7,
+            "cosine_sim": [0.9, 0.9, 0.9, 0.6, 0.6, 0.4, 0.7],
+        }
+    )
+    p1 = tmp_path / "bnt_a.csv"
+    base.to_csv(p1, index=False)
+    out_a = load_eligible_pairs(p1)
+
+    permuted = base.iloc[[3, 0, 5, 6, 1, 4, 2]].reset_index(drop=True)
+    p2 = tmp_path / "bnt_b.csv"
+    permuted.to_csv(p2, index=False)
+    out_b = load_eligible_pairs(p2)
+
+    # 4 unique (gold, normalized) pairs survive.
+    assert len(out_a) == 4
+    assert len(out_b) == 4
+    pairs_a = list(zip(out_a["gold"], out_a["normalized"]))
+    pairs_b = list(zip(out_b["gold"], out_b["normalized"]))
+    assert pairs_a == pairs_b
+
+    # Order-invariance: the kept participant_id within each (gold, normalized)
+    # group is the same regardless of input row order, because the sort
+    # tiebreaker is participant_id.
+    a_kept = dict(zip(pairs_a, out_a["participant_id"]))
+    b_kept = dict(zip(pairs_b, out_b["participant_id"]))
+    assert a_kept == b_kept
+    # For (träd, träd), User-1 should be kept (lexicographically smallest).
+    assert a_kept[("träd", "träd")] == "User-1"
+
+
+def test_load_eligible_pairs_return_counts(tmp_path):
+    base = pd.DataFrame(
+        {
+            "participant_id": ["U1", "U2", "U3", "U4"],
+            "gold":            ["a",  "a",  "b",  "c"],
+            "normalized":      ["x",  "x",  "y",  "z"],
+            "is_exact_match":  [False, False, True,  False],
+            "is_non_response": [False, False, False, False],
+            "cosine_sim":      [0.5, 0.5, 0.9, 0.3],
+        }
+    )
+    p = tmp_path / "bnt.csv"
+    base.to_csv(p, index=False)
+    eligible, counts = load_eligible_pairs(p, return_counts=True)
+    assert counts["n_total"] == 4
+    assert counts["n_exact_match"] == 1
+    assert counts["n_after_filter"] == 3   # row b removed by exact-match
+    assert counts["n_after_dedup"] == 2    # one (a,x) duplicate dropped
+    assert counts["n_duplicates_dropped"] == 1
+    assert len(eligible) == 2
+
+
 def test_training_sample_disjoint_from_live(tmp_path):
     _, df = _synthetic_bnt_csv(tmp_path, n=2400, seed=4)
     eligible = df[~df["is_non_response"] & ~df["is_exact_match"]].reset_index(drop=True)
